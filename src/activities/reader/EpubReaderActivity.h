@@ -14,6 +14,7 @@
 #include "ChapterPosition.h"
 #include "ClipSelectionActivity.h"
 #include "EpubReaderMenuActivity.h"
+#include "KoboSyncConfig.h"
 #include "LinkNoteTitle.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
@@ -213,6 +214,10 @@ class EpubReaderActivity final : public ReaderActivity {
   void openClippings();
   void applyProgressChange(const ProgressChangeResult& progress);
   bool launchKOReaderSync();
+#if CROSSPOINT_KOBO_SYNC
+  bool launchKoboStatusSync(const std::string& contentId);
+  bool koboOpenSyncChecked = false;
+#endif
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void loadCachedBookmarks();
@@ -261,6 +266,9 @@ class EpubReaderActivity final : public ReaderActivity {
   ~EpubReaderActivity() override;
 
   void loop() override;
+#if CROSSPOINT_KOBO_SYNC
+  void onExit() override;
+#endif
   void render(RenderLock&& lock) override;
 
   bool pageTurn(bool isForward) override;

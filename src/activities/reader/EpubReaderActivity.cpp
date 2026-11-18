@@ -40,6 +40,13 @@
 #include "EpubReaderUtils.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
+#include "KoboSyncConfig.h"
+#if CROSSPOINT_KOBO_SYNC
+#include "KoboCatalog.h"
+#include "KoboCredentialStore.h"
+#include "KoboStatusSyncActivity.h"
+#include "KoboSyncClient.h"
+#endif
 #include "MappedInputManager.h"
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
@@ -753,6 +760,20 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+#if CROSSPOINT_KOBO_SYNC
+  if (!koboOpenSyncChecked) {
+    koboOpenSyncChecked = true;
+    if (KOBO_STORE.consumeSkipOpenSync()) {
+      KOBO_STORE.saveToFile();
+    } else if (KOBO_STORE.getSyncOnOpen() && KOBO_STORE.hasCredentials()) {
+      std::string contentId;
+      if (KoboCatalog::contentIdForPath(epub->getPath(), contentId) && launchKoboStatusSync(contentId)) {
+        return;
+      }
+    }
+  }
+#endif
+
   rememberBookOnceRendered();
 
   // The radio stopped for a chapter build: once the render task has let go of the lock, that page
@@ -1400,6 +1421,17 @@ unsigned long EpubReaderActivity::confirmLongPressThreshold() const {
 }
 
 bool EpubReaderActivity::launchKOReaderSync() {
+#if CROSSPOINT_KOBO_SYNC
+  // A book downloaded from the Kobo shelf carries a content-id link. Prefer
+  // the calibre-web position for it; the KOReader path stays the fallback for
+  // sideloaded books.
+  if (KOBO_STORE.hasCredentials() && epub) {
+    std::string contentId;
+    if (KoboCatalog::contentIdForPath(epub->getPath(), contentId)) {
+      return launchKoboStatusSync(contentId);
+    }
+  }
+#endif
   flushReaderSession();
 
   // Without a KOReader server the sync activity only brings the device online
@@ -1457,6 +1489,70 @@ bool EpubReaderActivity::launchKOReaderSync() {
       renderer, mappedInput, savedEpubPath, localPos, std::move(localKoPos), std::move(localChapterName)));
   return true;
 }
+
+#if CROSSPOINT_KOBO_SYNC
+void EpubReaderActivity::onExit() {
+  // Queue the close-time position instead of doing TLS in the exit path:
+  // onExit runs under the render lock, and a slow server would stall Home or
+  // sleep. The next Kobo network action flushes it.
+  std::string contentId;
+  int basisPoints = 0;
+  if (epub && KOBO_STORE.hasCredentials() && KoboCatalog::contentIdForPath(bookPath, contentId)) {
+    basisPoints = getProgressBasisPoints();
+    const uint8_t status = basisPoints >= 9950 ? static_cast<uint8_t>(kobo::ReadStatus::Finished)
+                           : basisPoints > 0   ? static_cast<uint8_t>(kobo::ReadStatus::Reading)
+                                               : static_cast<uint8_t>(kobo::ReadStatus::Unread);
+    KOBO_STORE.queueProgressUpload(contentId, static_cast<uint16_t>(basisPoints), status);
+    KOBO_STORE.saveToFile();
+  }
+
+  ReaderActivity::onExit();
+}
+
+bool EpubReaderActivity::launchKoboStatusSync(const std::string& contentId) {
+  flushReaderSession();
+
+  RenderLock renderLock;
+
+  const int currentPage = section ? section->currentPage : nextPageNumber;
+  const int totalPages = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+  const CrossPointPosition localPos = getCurrentPosition();
+  const std::string savedEpubPath = epub->getPath();
+
+  if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
+    LOG_ERR("KOBO", "Aborting sync because current progress could not be saved");
+    pendingSyncSaveError = true;
+    requestUpdate();
+    return true;
+  }
+
+  SavedProgressPosition localProgress;
+  {
+    if (section) nextPageNumber = section->currentPage;
+    discardOverlayPage();
+    ImageBlock::releaseRenderCache();
+    ImageBlock::setExtractor(nullptr, nullptr);
+    section.reset();
+    if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+    // No rendering may run while the chapter mapper borrows the framebuffer.
+    GfxRenderer::FrameBufferLoan loan(renderer);
+    localProgress = ProgressMapper::toSavedProgress(epub, localPos);
+    if (footnoteDepth > 0) saveLinkStack();
+    epub.reset();
+  }
+
+  // silentRestartToReader() after the sync reboots into APP_STATE.openEpubPath.
+  // The auto-open hook runs before the reader's first page is remembered, so
+  // persist the path here rather than relying on that later hook.
+  APP_STATE.openEpubPath = savedEpubPath;
+  APP_STATE.saveToFile();
+
+  activityManager.replaceActivity(std::make_unique<KoboStatusSyncActivity>(renderer, mappedInput, savedEpubPath,
+                                                                           contentId, localProgress.percentage,
+                                                                           localPos.spineIndex, localPos.totalPages));
+  return true;
+}
+#endif
 
 void EpubReaderActivity::applyInitialOrientation() {
   ReaderActivity::applyInitialOrientation();

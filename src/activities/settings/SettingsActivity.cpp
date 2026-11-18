@@ -23,6 +23,10 @@
 #include "FontDownloadActivity.h"
 #include "HomeButtonSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
+#include "KoboSyncConfig.h"
+#if CROSSPOINT_KOBO_SYNC
+#include "KoboSyncSettingsActivity.h"
+#endif
 #include "KeyboardLayoutsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
@@ -197,6 +201,9 @@ void SettingsActivity::rebuildSettings() {
     addAction(SettingsSection::Network, StrId::STR_BT_PAGE_TURNER, SettingAction::Bluetooth);
   }
   addAction(SettingsSection::Network, StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync);
+#if CROSSPOINT_KOBO_SYNC
+  addAction(SettingsSection::Network, StrId::STR_KOBO_SYNC, SettingAction::KoboSync);
+#endif
   addAction(SettingsSection::Network, StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser);
   addAction(SettingsSection::Network, StrId::STR_PLUGINS, SettingAction::Plugins);
 
@@ -413,6 +420,11 @@ void SettingsActivity::toggleSelectedSetting() {
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
+#if CROSSPOINT_KOBO_SYNC
+      case SettingAction::KoboSync:
+        startActivityForResult(std::make_unique<KoboSyncSettingsActivity>(renderer, mappedInput), resultHandler);
+        break;
+#endif
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
         break;

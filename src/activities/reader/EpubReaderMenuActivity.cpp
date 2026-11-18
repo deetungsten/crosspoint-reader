@@ -7,6 +7,10 @@
 
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
+#include "KoboSyncConfig.h"
+#if CROSSPOINT_KOBO_SYNC
+#include "KoboCredentialStore.h"
+#endif
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
@@ -96,6 +100,9 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
   items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
   items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   bool canSync = KOREADER_STORE.hasCredentials();
+#if CROSSPOINT_KOBO_SYNC
+  canSync = canSync || KOBO_STORE.hasCredentials();
+#endif
   for (size_t event = 0; !canSync && event < static_cast<size_t>(pluginevents::Event::COUNT); ++event) {
     canSync = pluginevents::anySubscriber(static_cast<pluginevents::Event>(event));
   }

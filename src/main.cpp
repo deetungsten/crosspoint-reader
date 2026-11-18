@@ -33,6 +33,10 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
+#include "KoboSyncConfig.h"
+#if CROSSPOINT_KOBO_SYNC
+#include "KoboCredentialStore.h"
+#endif
 #include "LcpPassphraseStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -664,6 +668,10 @@ void setup() {
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
+#if CROSSPOINT_KOBO_SYNC
+  KOBO_STORE.loadFromFile();
+  KOBO_STORE.ensureDeviceId();
+#endif
   OPDS_STORE.loadFromFile();
   OPDS_TOKENS.loadFromFile();
   LCP_PASSPHRASES.loadFromFile();
