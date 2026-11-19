@@ -9,6 +9,7 @@ TEST(ProtectedPaths, CredentialStoresAreSensitive) {
   EXPECT_TRUE(isSensitivePath("/.crosspoint/wifi.json"));
   EXPECT_TRUE(isSensitivePath("/.crosspoint/opds.json"));
   EXPECT_TRUE(isSensitivePath("/.crosspoint/koreader.json"));
+  EXPECT_TRUE(isSensitivePath("/.crosspoint/kobo.json"));
   EXPECT_TRUE(isSensitivePath("/.crosspoint/wifi.json.tmp"));
   EXPECT_TRUE(isSensitivePath("/.CrossPoint/WIFI.json"));
 }

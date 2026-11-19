@@ -28,6 +28,7 @@ class KoboCredentialStore : public PersistableStore<KoboCredentialStore> {
   int64_t lastSyncTime = 0;
   KoboSyncBehavior syncBehavior = KoboSyncBehavior::SMART;
   bool syncOnOpen = false;
+  bool autoDownload = true;
   bool skipOpenSync = false;
   // Deferred reading-position upload, written on reader close and flushed by
   // the next network action so leaving a book never blocks on TLS.
@@ -53,7 +54,11 @@ class KoboCredentialStore : public PersistableStore<KoboCredentialStore> {
 
   bool hasCredentials() const { return !endpoint.empty() && !authToken.empty(); }
 
-  void setEndpoint(const std::string& value);
+  // Sets the base URL. Also accepts calibre-web's full ".../kobo/<token>"
+  // form, splitting out the token. Returns false when either part is over its
+  // bound; nothing is changed in that case. When useUrlToken is false, a token
+  // in the URL is ignored so an explicit token can override it.
+  bool setEndpoint(const std::string& value, bool useUrlToken = true);
   const std::string& getEndpoint() const { return endpoint; }
   // Scheme-normalized endpoint with trailing slashes removed.
   std::string getBaseUrl() const;
@@ -78,6 +83,9 @@ class KoboCredentialStore : public PersistableStore<KoboCredentialStore> {
   KoboSyncBehavior getSyncBehavior() const { return syncBehavior; }
   void setSyncOnOpen(bool enabled) { syncOnOpen = enabled; }
   bool getSyncOnOpen() const { return syncOnOpen; }
+  // Download every catalog book that is not on SD yet after a sync.
+  void setAutoDownload(bool enabled) { autoDownload = enabled; }
+  bool getAutoDownload() const { return autoDownload; }
 
   // One-shot suppression of sync-on-open after a position sync returns to the
   // reader. Feature-owned so core state does not grow a Kobo field.
@@ -98,5 +106,13 @@ class KoboCredentialStore : public PersistableStore<KoboCredentialStore> {
 };
 
 #define KOBO_STORE KoboCredentialStore::getInstance()
+
+// Home switches to the fixed Kobo layout when the feature is built and both
+// the server URL and token are configured.
+inline bool koboHomeLayout() { return KOBO_STORE.hasCredentials(); }
+
+#else
+
+constexpr bool koboHomeLayout() { return false; }
 
 #endif  // CROSSPOINT_KOBO_SYNC

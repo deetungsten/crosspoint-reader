@@ -6,6 +6,7 @@
 
 #include <Logging.h>
 #include <Memory.h>
+#include <freertos/task.h>
 
 #include <cstdio>
 #include <cstring>
@@ -131,12 +132,36 @@ bool KoboCatalog::open() {
         catalogFile.fileSize() > HEADER_SIZE
             ? static_cast<uint32_t>((catalogFile.fileSize() - HEADER_SIZE) / sizeof(KoboBookRecord))
             : 0;
-    catalogCount = static_cast<uint16_t>(catalogHeader.count < available ? catalogHeader.count : available);
+    uint32_t count = catalogHeader.count < available ? catalogHeader.count : available;
+    // Records are append-only and fixed-size, so any complete trailing rows are
+    // real even when the header count is stale (a failed header write).
+    // Recover them instead of showing an empty shelf; stop at the first row
+    // whose content id is not intact, which is a partial write.
+    if (count < available) {
+      uint32_t recovered = count;
+      for (uint32_t i = count; i < available && recovered < UINT16_MAX; i++) {
+        KoboBookRecord record;
+        if (!readRecordAt(HEADER_SIZE + i * sizeof(KoboBookRecord), record) || !validContentId(record.contentId)) {
+          break;
+        }
+        recovered = i + 1;
+        // A stale count on a large file can turn this into thousands of SD
+        // reads; let the idle task run so the watchdog is not starved.
+        if ((i & 63) == 63) vTaskDelay(1);
+      }
+      if (recovered != count) {
+        LOG_DBG("KOBO", "Recovered %u catalog rows after header count %u", static_cast<unsigned>(recovered),
+                static_cast<unsigned>(count));
+        count = recovered;
+      }
+    }
+    catalogCount = static_cast<uint16_t>(count);
     resetDetected = false;
     if (catalogCount != catalogHeader.count) {
       catalogHeader.count = catalogCount;
       catalogFile.seek(0);
       catalogFile.write(&catalogHeader, sizeof(catalogHeader));
+      catalogFile.flush();
     }
   }
 
@@ -194,7 +219,9 @@ bool KoboCatalog::writeCatalogHeader() {
   header.version = FORMAT_VERSION;
   header.recordSize = sizeof(KoboBookRecord);
   header.count = catalogCount;
-  return catalogFile.seek(0) && catalogFile.write(&header, sizeof(header)) == sizeof(header);
+  const bool ok = catalogFile.seek(0) && catalogFile.write(&header, sizeof(header)) == sizeof(header);
+  if (!ok) LOG_ERR("KOBO", "Cannot write catalog header");
+  return ok;
 }
 
 bool KoboCatalog::writeMapHeader(const uint32_t reserved) {
@@ -410,12 +437,20 @@ bool KoboCatalog::append(const KoboBookRecord& record) {
 
 void KoboCatalog::finishSync() {
   std::lock_guard<std::mutex> lock(mutex);
-  if (!open_ || mapLinear) return;
+  if (!open_) return;
+  // The catalog is the source of truth for the shelf; push its header and
+  // records before the sync returns to the UI.
+  catalogFile.flush();
+  if (mapLinear) return;
   // Nothing was appended since the map was last sorted.
   if (mapValid && mapSortedCount == mapCount) return;
   // Sort the appended map tail once. On failure lookups stay correct but
   // linear, so a large catalog remains usable at a slower speed.
-  if (!rebuildMap()) LOG_ERR("KOBO", "Map rebuild failed; using linear lookup");
+  if (!rebuildMap()) {
+    LOG_ERR("KOBO", "Map rebuild failed; using linear lookup");
+  } else {
+    mapFile.flush();
+  }
 }
 
 bool KoboCatalog::validMapEntry(const uint8_t* raw) {
@@ -507,6 +542,9 @@ bool KoboCatalog::contentIdForPath(const std::string& path, std::string& out) {
   char name[48];
   const size_t hash = std::hash<std::string>{}(path);
   snprintf(name, sizeof(name), "%s/%08lx.txt", LINKS_DIRECTORY, static_cast<unsigned long>(hash));
+  // Most books have no link; treat a missing file as "not downloaded" without
+  // asking the storage layer to log an open failure on every reader open.
+  if (!Storage.exists(name)) return false;
   std::string content;
   if (!Storage.readFileToString("KOBO", name, 512, content)) return false;
   const size_t firstLine = content.find('\n');

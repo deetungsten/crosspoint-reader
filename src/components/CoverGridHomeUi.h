@@ -18,11 +18,11 @@ class CoverGridHomeUi final : public UiAppHost {
   static constexpr int GRID_ROWS = 2;
   static constexpr int MAX_BOOKS = 1 + GRID_COLUMNS * GRID_ROWS;
   static_assert(MAX_BOOKS <= HomeCoverCache::MAX_COVERS);
-  // What the third tab opens; NONE hides it.
+  // In the non-Kobo layout, what the third tab opens; NONE hides it.
   enum class SlotTab : uint8_t { NONE, PLUGINS, OPDS };
 
   explicit CoverGridHomeUi(GfxRenderer& renderer);
-  void begin(const std::vector<RecentBook>& books, SlotTab slotTab, bool hasContinueReading);
+  void begin(const std::vector<RecentBook>& books, SlotTab slotTab, bool hasContinueReading, bool hasKobo);
   void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
   int selectedAction(const MappedInputManager& input);
@@ -57,11 +57,14 @@ class CoverGridHomeUi final : public UiAppHost {
   int progress = -1;
   SlotTab slotTab = SlotTab::NONE;
   bool hasContinueReading = false;
+  bool hasKobo = false;
   char progressText[12]{};
   // Component styles and interaction tables stay off the render task's stack.
   freeink::ui::BookCardProps card;
   freeink::ui::CoverGridProps grid;
   freeink::ui::Rect gridBounds{};
   freeink::ui::TabBarProps tabs;
-  std::array<freeink::ui::TabItem, 5> tabItems;
+  // At most five tabs: keep this in sync with HomeActivity::MAX_MENU_ITEMS.
+  static constexpr int MAX_TABS = 5;
+  std::array<freeink::ui::TabItem, MAX_TABS> tabItems;
 };

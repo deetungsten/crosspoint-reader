@@ -13,7 +13,6 @@
 // HTTP client for calibre-web's Kobo integration.
 //
 // Routes (all under <endpoint>/kobo/<auth-token>):
-//   POST /v1/auth/device                 device registration (dummy response)
 //   GET  /v1/library/sync                incremental catalog feed
 //   GET  /v1/library/<uuid>/metadata     fresh download link
 //   GET  /v1/library/<uuid>/state        reading position
@@ -40,10 +39,6 @@ class KoboSyncClient {
     uint16_t pages = 0;
   };
 
-  // Send the device-registration request a real Kobo makes once. A wrong
-  // token is rejected here with 401, so this doubles as "Test connection".
-  static Error testConnection();
-
   // Pull every page of the incremental feed into `catalog`. The new sync token
   // is persisted only after the whole paging sequence succeeds, so an
   // interrupted sync repeats the same page set next time.
@@ -53,8 +48,8 @@ class KoboSyncClient {
   static Error fetchReadingState(const std::string& contentId, kobo::ReadingState& out);
   static Error putReadingState(const std::string& contentId, float progressPercent, kobo::ReadStatus status,
                                const std::string& location);
-  // Uploads a position queued by the reader on close. Flushed by testConnection
-  // and after a successful catalog sync so leaving a book never blocks on TLS.
+  // Uploads a position queued by the reader on close. Flushed after a
+  // successful catalog sync so leaving a book never blocks on TLS.
   static Error flushPendingProgress();
 
   static std::string coverUrl(const std::string& contentId, int width, int height);

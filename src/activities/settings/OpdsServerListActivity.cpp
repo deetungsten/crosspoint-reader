@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "KoboCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "OpdsSettingsActivity.h"
@@ -48,8 +49,15 @@ StrId opdsFormatLabel(uint8_t format) {
 int OpdsServerListActivity::getItemCount() const {
   int count = static_cast<int>(OPDS_STORE.getCount());
   // Picker mode appends "Add Server"; Settings also adds folder and format.
-  count += pickerMode ? 1 : 3;
+  if (pickerMode) return count + 1;
+  count += 3;
+  if (hasBrowserRow()) count++;
   return count;
+}
+
+bool OpdsServerListActivity::hasBrowserRow() const {
+  // Home drops its OPDS row in the Kobo layout; this screen then owns browsing.
+  return koboHomeLayout() && !pickerMode && OPDS_STORE.getCount() > 0;
 }
 
 OpdsServerListActivity::OpdsServerListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -100,6 +108,13 @@ void OpdsServerListActivity::rebuildRowItems() {
     format.label = tr(STR_OPDS_FILENAME_FORMAT);
     format.actionValue = static_cast<int16_t>(serverCount + 2);
     rowItems_.push_back(format);  // subtitle refreshed per render below
+
+    if (hasBrowserRow()) {
+      fui::ListItem browser;
+      browser.label = tr(STR_OPDS_BROWSER);
+      browser.actionValue = static_cast<int16_t>(serverCount + 3);
+      rowItems_.push_back(browser);
+    }
   }
 }
 
@@ -150,7 +165,8 @@ void OpdsServerListActivity::handleSelection() {
     return;
   }
 
-  // Index layout: [servers 0..serverCount-1], [Add Server], [Download folder], [Filename format].
+  // Index layout: [servers 0..serverCount-1], [Add Server], [Download folder],
+  // [Filename format], and [OPDS Browser] when the Kobo home layout hides it.
   if (nav.selected == serverCount + 1) {
     auto folderHandler = [this](const ActivityResult& result) {
       if (!result.isCancelled) {
@@ -179,6 +195,11 @@ void OpdsServerListActivity::handleSelection() {
                        SETTINGS.saveToFile();
                      });
     requestUpdate();
+    return;
+  }
+
+  if (hasBrowserRow() && nav.selected == serverCount + 3) {
+    activityManager.goToBrowser();
     return;
   }
 

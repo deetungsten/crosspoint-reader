@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "GfxRenderer.h"
+#include "KoboSyncConfig.h"
 #include "MappedInputManager.h"
 #include "settings/SettingsSection.h"
 #include "util/ScreenshotInfo.h"
@@ -18,7 +19,19 @@
 class Activity;    // forward declaration
 class RenderLock;  // forward declaration
 
-enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, PLUGINS, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU };
+enum class HomeMenuItem {
+  NONE,
+  FILE_BROWSER,
+  LIBRARY,
+  PLUGINS,
+  OPDS_BROWSER,
+  FILE_TRANSFER,
+#if CROSSPOINT_KOBO_SYNC
+  KOBO_SHELF,
+  KOBO_SYNC,
+#endif
+  SETTINGS_MENU
+};
 
 /**
  * ActivityManager
@@ -93,6 +106,10 @@ class ActivityManager {
   void goToLibrary();
   void goToBrowser();
   void goToPlugins();
+#if CROSSPOINT_KOBO_SYNC
+  void goToKoboShelf();
+  void goToKoboSync();
+#endif
   void goToReader(std::string path, bool allowFastInitialRefresh = false);
   void goToSleep(bool fromTimeout = false);
   void goToBoot();

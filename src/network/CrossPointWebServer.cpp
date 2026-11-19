@@ -40,6 +40,8 @@
 #include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "FontInstaller.h"
+#include "KoboCatalog.h"
+#include "KoboCredentialStore.h"
 #include "OpdsServerStore.h"
 #include "ProtectedPaths.h"
 #include "SdCardFontSystem.h"
@@ -360,6 +362,11 @@ class CrossPointWebServer::RouteHandler final : public RequestHandler {
         {"/api/wifi", HTTP_GET, [](S& s) { s.handleGetWifiNetworks(); }, nullptr},
         {"/api/wifi", HTTP_POST, [](S& s) { s.handlePostWifiNetwork(); }, nullptr},
         {"/api/wifi/delete", HTTP_POST, [](S& s) { s.handleDeleteWifiNetwork(); }, nullptr},
+
+#if CROSSPOINT_KOBO_SYNC
+        {"/api/kobo", HTTP_GET, [](S& s) { s.handleGetKoboCredentials(); }, nullptr},
+        {"/api/kobo", HTTP_POST, [](S& s) { s.handlePostKoboCredentials(); }, nullptr},
+#endif
     };
     for (const Route& route : ROUTES) {
       if (route.method == method && uri == route.path) return &route;
@@ -2061,6 +2068,86 @@ void CrossPointWebServer::handleDeleteWifiNetwork() {
   LOG_DBG("WEB", "Deleted Wi-Fi network at index %d (SSID: %s)", idx, ssid->c_str());
   server->send(200, "text/plain", "OK");
 }
+
+#if CROSSPOINT_KOBO_SYNC
+// ---- Kobo Sync Credentials API ----
+
+void CrossPointWebServer::handleGetKoboCredentials() const {
+  JsonDocument doc;
+  doc["configured"] = KOBO_STORE.hasCredentials();
+  doc["endpoint"] = KOBO_STORE.getEndpoint();
+  sendJson(doc);
+  LOG_DBG("WEB", "Served Kobo credentials API");
+}
+
+void CrossPointWebServer::handlePostKoboCredentials() {
+  JsonDocument doc;
+  if (!readJsonBody(doc)) return;
+  if (!doc.is<JsonObjectConst>()) {
+    server->send(400, "application/json", "{\"error\":\"body must be an object\"}");
+    return;
+  }
+
+  const std::string endpoint = doc["endpoint"] | std::string("");
+  const std::string token = doc["token"] | std::string("");
+  // calibre-web's "Kobo Sync Key" page shows the full api_endpoint. Accept it
+  // and let setEndpoint() split out the token, as the settings UI does.
+  const std::string apiEndpoint = doc["apiEndpoint"] | std::string("");
+
+  if (endpoint.size() > KoboCredentialStore::MAX_ENDPOINT) {
+    server->send(400, "application/json", "{\"error\":\"endpoint too long\"}");
+    return;
+  }
+  if (token.size() > KoboCredentialStore::MAX_TOKEN) {
+    server->send(400, "application/json", "{\"error\":\"token too long\"}");
+    return;
+  }
+  if (!apiEndpoint.empty() && !endpoint.empty()) {
+    server->send(400, "application/json", "{\"error\":\"use endpoint or apiEndpoint\"}");
+    return;
+  }
+
+  const std::string previousEndpoint = KOBO_STORE.getEndpoint();
+  const std::string previousToken = KOBO_STORE.getAuthToken();
+
+  // setEndpoint() validates both parts before changing anything, so a rejected
+  // combined URL leaves the saved credentials untouched.
+  // An explicit token overrides any token inside the URL.
+  const bool useUrlToken = token.empty();
+  if (!apiEndpoint.empty()) {
+    if (!KOBO_STORE.setEndpoint(apiEndpoint, useUrlToken)) {
+      server->send(400, "application/json", "{\"error\":\"invalid apiEndpoint\"}");
+      return;
+    }
+  } else if (!endpoint.empty()) {
+    if (!KOBO_STORE.setEndpoint(endpoint, useUrlToken)) {
+      server->send(400, "application/json", "{\"error\":\"invalid endpoint\"}");
+      return;
+    }
+  }
+  if (!token.empty()) KOBO_STORE.setAuthToken(token);
+
+  const bool identityChanged =
+      previousEndpoint != KOBO_STORE.getEndpoint() || previousToken != KOBO_STORE.getAuthToken();
+  const bool saved = KOBO_STORE.saveToFile();
+  // The catalog and path links belong to the previous server/user identity.
+  // Clear them even if the save fails: the in-memory credentials are already
+  // the new identity.
+  if (identityChanged) {
+    resetTaskWatchdogIfSubscribed();
+    if (!KoboCatalog::removeAll()) {
+      LOG_ERR("WEB", "Failed to clear Kobo catalog after credential change");
+    }
+    resetTaskWatchdogIfSubscribed();
+  }
+  if (!saved) {
+    server->send(500, "application/json", "{\"error\":\"failed to save credentials\"}");
+    return;
+  }
+  server->send(200, "application/json", "{\"ok\":true}");
+  LOG_DBG("WEB", "Updated Kobo sync credentials");
+}
+#endif  // CROSSPOINT_KOBO_SYNC
 
 // ---------------------------------------------------------------------------
 // Browser-side plugins (JS on the SD card)

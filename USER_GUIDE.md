@@ -109,7 +109,9 @@ Upon turning the device on for the first time, you will be placed on the **[Home
 
 ### 3.1 Home Screen
 
-The Home screen is the main entry point to the firmware. From here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, **[Browse Files](#33-browse-files-screen)**, the **[Library](#34-library-screen)**, **[File Transfer](#35-file-transfer-screen)**, or **[Settings](#36-settings)**.
+The Home screen is the main entry point to the firmware. In the default layout, from here you can navigate to **[Reading Mode](#4-reading-mode)** with the most recently read book, **[Browse Files](#33-browse-files-screen)**, the **[Library](#34-library-screen)**, **[File Transfer](#35-file-transfer-screen)**, or **[Settings](#36-settings)**.
+
+When Kobo sync is configured (**Settings → Connectivity → Kobo Sync** with a server URL and token), Home uses a fixed five-row layout: **Kobo Library**, **Kobo Sync**, **Browse Files**, **Library**, and **Settings**. **Kobo Library** opens the synced shelf; **Kobo Sync** runs the catalog sync and, when new rows arrive, opens the shelf to auto-download them. This layout does not show the Plugins/OPDS row or **File Transfer**. While it is active, **File Transfer** (web upload, Calibre Wireless, hotspot, USB Drive where supported) remains available from **Settings → Connectivity → File Transfer**, and the on-device **Plugin Catalog** from **Settings → Connectivity → Plugin Catalog** while plugins are enabled. OPDS browsing remains available from **Settings → Connectivity → OPDS Servers → OPDS Browser** once a server is saved. Clearing the Kobo credentials in **Settings → Connectivity → Kobo Sync** restores the default Home layout, but it also clears the synced Kobo catalog. See [Kobo Sync](./docs/kobo-sync.md).
 
 ### 3.2 Reading Mode
 
@@ -149,7 +151,10 @@ The index is created automatically the first time the Library is opened, and it 
 
 ### 3.5 File Transfer Screen
 
-The File Transfer screen allows you to upload and manage files on the device. When you enter the screen, choose **Join a Network**, **Calibre Wireless**, or **Create Hotspot**. The reader then starts the web server for the selected mode. The screen also lists **OPDS Browser**, which opens your OPDS catalogs; with no server configured it opens the server list so you can add one (see [OPDS Servers](#365-opds-servers-multiple-libraries)). When the plugin system is off and a server is configured, OPDS Browser is on the Home screen instead.
+The File Transfer screen allows you to upload and manage files on the device. When you enter the screen, choose **Join a Network**, **Calibre Wireless**, or **Create Hotspot**. The reader then starts the web server for the selected mode. The screen also lists **OPDS Browser**, which opens your OPDS catalogs; with no server configured it opens the server list so you can add one (see [OPDS Servers](#365-opds-servers-multiple-libraries)). When the plugin system is off, a server is configured, and Kobo sync is not configured, OPDS Browser is on the Home screen instead.
+
+> [!NOTE]
+> When Kobo sync is configured, open File Transfer from **Settings → Connectivity → File Transfer**; the Kobo Home layout has no File Transfer row. See the [Home Screen](#31-home-screen) section.
 
 See the [web server docs](./docs/webserver.md) for more information on how to connect to the web server and upload files.
 
@@ -193,7 +198,7 @@ If you don't already have the plugin installed:
 
 To upload a book using the CrossPoint plugin in Calibre:
 
-1. On the device: File Transfer -> Calibre Wireless, then join a network.
+1. On the device: open File Transfer (Home, or **Settings → Connectivity → File Transfer** in the Kobo Home layout) -> Calibre Wireless, then join a network.
 2. Select one or more books.
 3. Right-click on that selection.
 4. Select "Send to Device" > "Send to main memory"
@@ -208,7 +213,7 @@ Books cannot be removed from your device through Calibre. Use the web interface 
 
 ### 3.6 Settings
 
-Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, file-extension visibility, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Hide New Files in Recent, Clear Read Books from Recent List, Move Finished Books to Read Folder, and Refresh Library. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, OPDS, and the Plugins toggle. The options below describe these settings.
+Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, file-extension visibility, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Hide New Files in Recent, Clear Read Books from Recent List, Move Finished Books to Read Folder, and Refresh Library. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, Kobo Sync (where built), OPDS, and the Plugins toggle. When the Kobo Home layout is active, Connectivity also contains **File Transfer** and, while plugins are enabled, **Plugin Catalog**. The options below describe these settings.
 
 #### 3.6.1 Display
 
@@ -368,12 +373,12 @@ Side buttons, and Taps and gestures where supported by the device. See the
 - **Check for updates**: Check for Crosspoint firmware updates over Wi-Fi. Firmware can also be updated without a USB connection by placing a `firmware.bin` file on the SD card. Neither option is available on the BOOX Picco, which is updated over USB.
 
 - **Plugins** (**Settings → Connectivity**): Enable or disable SD-card plugins. Clean installs start disabled; upgrades with existing plugins are kept enabled automatically. Disabling plugins leaves all plugin files on the SD card but stops plugin discovery and execution until they are enabled again.
-  - Enabling plugins immediately adds **Plugins** to the Home screen, even when no plugins are installed yet. Sideloaded SD-card plugins work without Plugin Hub.
-  - Open **Home → Plugins** to view installed plugins. Hold **Confirm** on a selected installed plugin for one second (or long-press its row on a touch device) to open an uninstall confirmation. Confirming deletes that plugin's installed folder and files; cancelling leaves it installed. If no usable on-device Plugin Hub is available and its installer has not been hidden, a **Plugin Hub — Download, discover, and update plugins** entry is also shown. A manually sideloaded Hub with a valid `device.json` is recognized without requiring the optional README or browser files.
+  - Enabling plugins immediately adds **Plugins** to the Home screen, even when no plugins are installed yet, except when Kobo sync is configured: Home then keeps its fixed Kobo Home layout, and the catalog is reached from **Settings → Connectivity → Plugin Catalog**. Sideloaded SD-card plugins work without Plugin Hub.
+  - In the default Home layout, open **Home → Plugins**; in the Kobo Home layout, open **Settings → Connectivity → Plugin Catalog**. Hold **Confirm** on a selected installed plugin for one second (or long-press its row on a touch device) to open an uninstall confirmation. Confirming deletes that plugin's installed folder and files; cancelling leaves it installed. If no usable on-device Plugin Hub is available and its installer has not been hidden, a **Plugin Hub — Download, discover, and update plugins** entry is also shown. A manually sideloaded Hub with a valid `device.json` is recognized without requiring the optional README or browser files.
   - Selecting that Plugin Hub entry offers **Install**, **Hide**, or **Cancel**. **Install** downloads Plugin Hub over Wi-Fi. If you back out of Wi-Fi selection, installation is cancelled, Wi-Fi is turned back off, and you return to Plugins with the installer still available. **Hide** removes only the Plugin Hub install entry; it does not disable plugins or affect sideloaded plugins. **Cancel** leaves the entry unchanged.
   - **Hide** persists across reboots. Setting **Settings → Connectivity → Plugins** to **Enabled** again brings the installer back.
   - Plugins with web settings appear on the **Plugins** page of the web UI while **File Transfer** is running. Its link is hidden while plugins are disabled.
-  - Plugin Hub is optional. Users who prefer manual installation can download it directly from [crosspoint-plugin-hub releases](https://github.com/crosspoint-reader/crosspoint-plugin-hub/releases) and copy/extract the `pluginhub` folder so it ends up at `/.crosspoint/plugins/pluginhub/`, `/plugins/pluginhub/`, or `/.plugins/pluginhub/`. Once installed, Plugin Hub appears as a normal entry under **Home → Plugins**.
+  - Plugin Hub is optional. Users who prefer manual installation can download it directly from [crosspoint-plugin-hub releases](https://github.com/crosspoint-reader/crosspoint-plugin-hub/releases) and copy/extract the `pluginhub` folder so it ends up at `/.crosspoint/plugins/pluginhub/`, `/plugins/pluginhub/`, or `/.plugins/pluginhub/`. Once installed, Plugin Hub appears as a normal entry in the Plugins catalog (**Home → Plugins** in the default layout, **Settings → Connectivity → Plugin Catalog** in the Kobo Home layout).
 
 - **Language**: Set the UI language. CrossPoint supports 32 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, European Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Arabic, Slovak, Bosnian, Vietnamese, Norwegian Bokmål, Indonesian, and Orangutan.
 
@@ -381,7 +386,7 @@ Side buttons, and Taps and gestures where supported by the device. See the
 
 #### 3.6.5 OPDS Servers (Multiple Libraries)
 
-CrossPoint supports saving multiple OPDS servers and switching between them when browsing catalogs. Browse them from **OPDS Browser** on the Home screen (plugin system off and a server saved), otherwise from **File Transfer -> OPDS Browser**.
+CrossPoint supports saving multiple OPDS servers and switching between them when browsing catalogs. Browse them from **Settings -> Connectivity -> OPDS Servers -> OPDS Browser** when Kobo sync is configured (once a server is saved); otherwise open **OPDS Browser** from Home or **File Transfer**. With the plugin system off, a server saved, and no Kobo Home layout, **OPDS Browser** is also on the Home screen.
 
 1. Open **Settings -> Connectivity -> OPDS Servers**.
 
@@ -414,7 +419,7 @@ For web-based Wi-Fi network management, see [Web Settings (Wi-Fi + OPDS)](#366-w
 
 While in **File Transfer** mode, the web settings page includes management cards for both **Wi-Fi Networks** and **OPDS Servers**.
 
-1. On device: open **File Transfer** and connect through **Join a Network** or **Create Hotspot**.
+1. On device: open **File Transfer** (Home, or **Settings → Connectivity → File Transfer** in the Kobo Home layout) and connect through **Join a Network** or **Create Hotspot**.
 2. In a browser, open `http://<device-ip>/settings` or `http://crosspoint.local`.
 3. In **Wi-Fi Networks**, add, edit, or delete saved network entries (SSID + optional password).
 4. In **OPDS Servers**, add, edit, or delete OPDS catalogs.

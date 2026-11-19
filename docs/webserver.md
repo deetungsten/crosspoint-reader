@@ -20,7 +20,7 @@ networks or in hotspot mode when you control who is connected.
 
 ## Starting File Transfer
 
-1. From the Home screen, select **File Transfer**.
+1. Open **File Transfer** from Home, or from **Settings → Connectivity → File Transfer** in the Kobo Home layout.
 2. Choose one of the available modes:
 
 | Mode | Use when |

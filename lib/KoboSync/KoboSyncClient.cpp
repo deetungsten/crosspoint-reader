@@ -20,6 +20,7 @@
 
 #include "KoboCredentialStore.h"
 #include "KoboFeedParser.h"
+#include "KoboText.h"
 #include "KoboSyncTime.h"
 #include "KoboSyncToken.h"
 
@@ -31,7 +32,6 @@ constexpr int HTTP_TIMEOUT_MS = 30000;
 constexpr uint16_t MAX_SYNC_PAGES = 20;
 constexpr size_t MAX_METADATA_BYTES = 8192;
 constexpr size_t MAX_STATE_BYTES = 4096;
-constexpr size_t MAX_AUTH_BYTES = 2048;
 
 // Same preflight floor as the KOReader client: a TLS handshake that cannot
 // find this much contiguous room fails mid-record on the C3.
@@ -263,35 +263,6 @@ KoboSyncClient::Error collectBody(const std::string& path, std::string& body, co
 
 }  // namespace
 
-KoboSyncClient::Error KoboSyncClient::testConnection() {
-  lastHttpCode = 0;
-  if (!KOBO_STORE.hasCredentials()) return NO_CREDENTIALS;
-  if (insufficientHeap()) return LOW_MEMORY;
-  flushPendingProgress();
-
-  JsonDocument doc;
-  doc["DeviceId"] = KOBO_STORE.getDeviceId();
-  doc["UserKey"] = KOBO_STORE.getAuthToken();
-  std::string body;
-  serializeJson(doc, body);
-
-  std::string response;
-  ResponseInfo info;
-  const auto error = request(
-      "POST", "/v1/auth/device", body, "",
-      [&response](const uint8_t* data, const size_t len) {
-        if (response.size() + len > MAX_AUTH_BYTES) return false;
-        response.append(reinterpret_cast<const char*>(data), len);
-        return true;
-      },
-      info, nullptr);
-  if (error == OK) {
-    KOBO_STORE.saveToFile();
-    LOG_DBG("KOBO", "Device registration OK (%zu byte response)", response.size());
-  }
-  return error;
-}
-
 KoboSyncClient::Error KoboSyncClient::syncCatalog(KoboCatalog& catalog, SyncStats& stats, const bool* cancelFlag) {
   lastHttpCode = 0;
   stats = SyncStats{};
@@ -389,11 +360,11 @@ KoboSyncClient::Error KoboSyncClient::fetchMetadata(const std::string& contentId
   if (metadata.isNull()) return JSON_ERROR;
   copyField(out.contentId, sizeof(out.contentId), contentId.c_str(), contentId.size());
   const char* title = metadata["Title"] | "";
-  copyField(out.title, sizeof(out.title), title, strlen(title));
+  kobo::copyNormalizedField(out.title, sizeof(out.title), title, strlen(title));
   JsonArrayConst contributors = metadata["Contributors"].as<JsonArrayConst>();
   if (!contributors.isNull() && contributors.size() > 0) {
     const char* author = contributors[0] | "";
-    copyField(out.author, sizeof(out.author), author, strlen(author));
+    kobo::copyNormalizedField(out.author, sizeof(out.author), author, strlen(author));
   }
 
   int bestRank = 0;

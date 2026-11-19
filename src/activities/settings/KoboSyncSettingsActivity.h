@@ -9,8 +9,8 @@
 #include "activities/UiListActivity.h"
 #include "components/OptionPopup.h"
 
-// Kobo (calibre-web) sync settings: endpoint, per-user auth token, connection
-// test, full sync, and the reading-position behavior used by the reader.
+// Kobo (calibre-web) sync settings: endpoint, per-user auth token, full sync,
+// automatic downloads, and the reading-position behavior used by the reader.
 class KoboSyncSettingsActivity final : public UiListActivity {
  public:
   static constexpr int MENU_ITEMS = 8;

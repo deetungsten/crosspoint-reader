@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "KoboSyncConfig.h"
+
 // Structure to hold file information
 struct FileInfo {
   String name;
@@ -156,6 +158,12 @@ class CrossPointWebServer {
   void handleGetWifiNetworks() const;
   void handlePostWifiNetwork();
   void handleDeleteWifiNetwork();
+
+#if CROSSPOINT_KOBO_SYNC
+  // Kobo sync credential handlers
+  void handleGetKoboCredentials() const;
+  void handlePostKoboCredentials();
+#endif
 
   // Missing or malformed JSON sends a 400 response and returns false.
   bool readJsonBody(JsonDocument& out) const;

@@ -23,6 +23,7 @@
 #include "FontDownloadActivity.h"
 #include "HomeButtonSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
+#include "KoboCredentialStore.h"
 #include "KoboSyncConfig.h"
 #if CROSSPOINT_KOBO_SYNC
 #include "KoboSyncSettingsActivity.h"
@@ -39,6 +40,7 @@
 #include "StatusBarSettingsActivity.h"
 #include "TextSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/plugins/PluginCatalogActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -112,7 +114,9 @@ bool belongsToControlsGroup(const SettingInfo& setting, ControlsGroup group) {
 }
 
 // Device-only action rows added per section, beyond the shared list.
-constexpr size_t EXTRA_ROWS_PER_SECTION = 6;
+// Connectivity has the most: Wi-Fi, Bluetooth, KOReader, Kobo, OPDS, Plugins,
+// File Transfer, and Plugin Catalog.
+constexpr size_t EXTRA_ROWS_PER_SECTION = 8;
 }  // namespace
 
 void SettingsActivity::rebuildSettings() {
@@ -197,6 +201,13 @@ void SettingsActivity::rebuildSettings() {
   addAction(SettingsSection::Library, StrId::STR_LIBRARY_REBUILD, SettingAction::RefreshLibrary);
 
   addAction(SettingsSection::Network, StrId::STR_WIFI_NETWORKS, SettingAction::Network);
+#if CROSSPOINT_KOBO_SYNC
+  // The Kobo Home layout drops Home's File Transfer row; keep the same entry
+  // point here, including its pre-Join-Network heap-defrag reboot.
+  if (koboHomeLayout()) {
+    addAction(SettingsSection::Network, StrId::STR_FILE_TRANSFER, SettingAction::FileTransfer);
+  }
+#endif
   if (bleturner::status().compiledIn) {
     addAction(SettingsSection::Network, StrId::STR_BT_PAGE_TURNER, SettingAction::Bluetooth);
   }
@@ -206,6 +217,13 @@ void SettingsActivity::rebuildSettings() {
 #endif
   addAction(SettingsSection::Network, StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser);
   addAction(SettingsSection::Network, StrId::STR_PLUGINS, SettingAction::Plugins);
+#if CROSSPOINT_KOBO_SYNC
+  // The Kobo Home layout also drops Home's Plugins row, so expose the catalog
+  // here under the same enable gate as Home's row.
+  if (koboHomeLayout() && SETTINGS.pluginsEnabled != 0) {
+    addAction(SettingsSection::Network, StrId::STR_PLUGIN_CATALOG, SettingAction::PluginCatalog);
+  }
+#endif
 
   // OTA fetches this board's own release asset (see OtaUpdater); boards whose
   // asset isn't published yet just report no update available. The Picco's
@@ -421,9 +439,28 @@ void SettingsActivity::toggleSelectedSetting() {
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
 #if CROSSPOINT_KOBO_SYNC
-      case SettingAction::KoboSync:
-        startActivityForResult(std::make_unique<KoboSyncSettingsActivity>(renderer, mappedInput), resultHandler);
+      case SettingAction::KoboSync: {
+        const bool koboLayoutBefore = koboHomeLayout();
+        startActivityForResult(
+            std::make_unique<KoboSyncSettingsActivity>(renderer, mappedInput),
+            [this, koboLayoutBefore](const ActivityResult&) {
+              // Only credentials can change the fallback rows here. Serialize
+              // the structural rebuild with the render task; ActivityManager
+              // runs result handlers outside RenderLock.
+              if (koboHomeLayout() == koboLayoutBefore) return;
+              RenderLock lock;
+              rebuildSettings();
+              // Keep the cursor on Kobo Sync rather than its old numeric row.
+              for (size_t i = 0; i < settings.size(); ++i) {
+                if (settings[i].action == SettingAction::KoboSync) {
+                  nav.requestSelection(static_cast<int>(i));
+                  return;
+                }
+              }
+              nav.requestSelection(std::min(static_cast<int>(nav.selected), static_cast<int>(settings.size()) - 1));
+            });
         break;
+      }
 #endif
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
@@ -450,6 +487,11 @@ void SettingsActivity::toggleSelectedSetting() {
         });
         break;
       }
+      case SettingAction::FileTransfer:
+        // Same launch as Home's former row: the web-server activity owns mode
+        // selection and the pre-Join-Network reboot.
+        activityManager.goToFileTransfer();
+        break;
       case SettingAction::Bluetooth: {
         auto activity = makeUniqueNoThrow<BleSettingsActivity>(renderer, mappedInput);
         if (!activity) {
@@ -516,10 +558,25 @@ void SettingsActivity::toggleSelectedSetting() {
           SETTINGS.saveToFile();
           // Applies to event delivery now, not after a reboot.
           pluginevents::refreshSubscriptions();
+          // The catalog row appears/disappears with this toggle; keep the
+          // structural rebuild off the render task's vectors.
+          RenderLock lock;
           rebuildSettings();
         });
         requestUpdate();
         return;
+      }
+      case SettingAction::PluginCatalog: {
+        // Pushed rather than replacing Settings, so Back returns here when the
+        // catalog did not bring up Wi-Fi (which reboots on exit).
+        auto activity = makeUniqueNoThrow<PluginCatalogActivity>(renderer, mappedInput, /*rootMode=*/false);
+        if (!activity) {
+          LOG_ERR("SET", "OOM: PluginCatalogActivity");
+          return;
+        }
+        // No Settings row depends on catalog state; the base requests a repaint.
+        startActivityForResult(std::move(activity), nullptr);
+        break;
       }
       case SettingAction::KeyboardLayouts:
         if (auto activity = makeUniqueNoThrow<KeyboardLayoutsActivity>(renderer, mappedInput)) {

@@ -30,10 +30,11 @@ constexpr int COVER_ROW_EXTRA_HEIGHT = 8;
 CoverGridHomeUi::CoverGridHomeUi(GfxRenderer& renderer)
     : UiAppHost(renderer), coverCache(renderer), renderer(renderer) {}
 
-void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, const SlotTab slot, bool continuing) {
+void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, const SlotTab slot, bool continuing, bool kobo) {
   books = &recent;
   slotTab = slot;
   hasContinueReading = continuing;
+  hasKobo = kobo;
   if (!recent.empty()) coverCache.begin();
   resetUi();
   app.on(SELECT, &CoverGridHomeUi::onAction, this);
@@ -284,14 +285,28 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   static constexpr const uint8_t* ICONS[] = {FolderIcon, LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon};
+#if CROSSPOINT_KOBO_SYNC
+  // Kobo layout tabs follow Home's fixed row order: shelf, sync, files, library, settings.
+  static constexpr const uint8_t* KOBO_ICONS[] = {BookIcon, TransferIcon, FolderIcon, LibraryIcon, Settings2Icon};
+#endif
   int count = 0;
-  for (int i = 0; i < 5; ++i) {
-    if (i == 2 && slotTab == SlotTab::NONE) continue;
+  const auto addTab = [&] {
     auto& tab = tabItems[count];
     tab.value = books->size() + count;
     tab.selected = selected == tab.value;
     tab.label = nullptr;
     ++count;
+  };
+#if CROSSPOINT_KOBO_SYNC
+  if (hasKobo) {
+    for (int i = 0; i < MAX_TABS; ++i) addTab();
+  } else
+#endif
+  {
+    for (int i = 0; i < MAX_TABS; ++i) {
+      if (i == 2 && slotTab == SlotTab::NONE) continue;
+      addTab();
+    }
   }
   tabs.tabs = tabItems.data();
   tabs.count = count;
@@ -303,7 +318,15 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   tabs.iconPainter = [](fui::DrawTarget&, fui::Rect iconRect, const fui::TabItem& tab, uint8_t, void* user) {
     const auto& self = *static_cast<CoverGridHomeUi*>(user);
     const int index = tab.value - static_cast<int>(self.books->size());
-    const int icon = self.slotTab == SlotTab::NONE && index >= 2 ? index + 1 : index;
+#if CROSSPOINT_KOBO_SYNC
+    if (self.hasKobo) {
+      if (index < 0 || index >= MAX_TABS) return false;
+      self.renderer.drawIcon(KOBO_ICONS[index], iconRect.x, iconRect.y, iconRect.width);
+      return true;
+    }
+#endif
+    int icon = index;
+    if (self.slotTab == SlotTab::NONE && index >= 2) icon = index + 1;
     const uint8_t* bitmap = icon == 2 && self.slotTab == SlotTab::OPDS ? BookIcon : ICONS[icon];
     self.renderer.drawIcon(bitmap, iconRect.x, iconRect.y, iconRect.width);
     return true;

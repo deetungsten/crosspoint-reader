@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "KoboFeedParser.h"
+#include "KoboText.h"
 #include "KoboSyncTime.h"
 
 namespace {
@@ -156,6 +157,10 @@ void KoboFeedParser::emitTagItems() {
 }
 
 void KoboFeedParser::appendAuthor(const char* value, const size_t len) {
+  char normalized[kobo::AUTHOR_MAX];
+  kobo::copyNormalizedField(normalized, sizeof(normalized), value, len);
+  const size_t normalizedLen = strlen(normalized);
+
   const size_t used = strlen(entry.author);
   if (used >= kobo::AUTHOR_MAX - 1) return;
   size_t room = kobo::AUTHOR_MAX - 1 - used;
@@ -164,9 +169,9 @@ void KoboFeedParser::appendAuthor(const char* value, const size_t len) {
     memcpy(entry.author + used, ", ", 2);
     room -= 2;
   }
-  size_t n = len < room ? len : room;
-  while (n > 0 && n < len && (static_cast<unsigned char>(value[n]) & 0xC0) == 0x80) n--;
-  memcpy(entry.author + used + (used > 0 ? 2 : 0), value, n);
+  size_t n = normalizedLen < room ? normalizedLen : room;
+  while (n > 0 && n < normalizedLen && (static_cast<unsigned char>(normalized[n]) & 0xC0) == 0x80) n--;
+  memcpy(entry.author + used + (used > 0 ? 2 : 0), normalized, n);
   entry.author[used + (used > 0 ? 2 : 0) + n] = '\0';
 }
 
@@ -185,7 +190,9 @@ void KoboFeedParser::sOnString(void* ctx, const char* value, const size_t len) {
       if (strcmp(key, "Id") == 0) copyField(self->entry.contentId, sizeof(self->entry.contentId), value, len);
       break;
     case Ctx::BookMetadata:
-      if (strcmp(key, "Title") == 0) copyField(self->entry.title, sizeof(self->entry.title), value, len);
+      if (strcmp(key, "Title") == 0) {
+        kobo::copyNormalizedField(self->entry.title, sizeof(self->entry.title), value, len);
+      }
       break;
     case Ctx::ReadingState:
       if (strcmp(key, "EntitlementId") == 0) {
@@ -215,7 +222,9 @@ void KoboFeedParser::sOnString(void* ctx, const char* value, const size_t len) {
       }
       break;
     case Ctx::Series:
-      if (strcmp(key, "Name") == 0) copyField(self->entry.series, sizeof(self->entry.series), value, len);
+      if (strcmp(key, "Name") == 0) {
+        kobo::copyNormalizedField(self->entry.series, sizeof(self->entry.series), value, len);
+      }
       break;
     case Ctx::DownloadUrl:
       if (strcmp(key, "Url") == 0) {
@@ -231,7 +240,7 @@ void KoboFeedParser::sOnString(void* ctx, const char* value, const size_t len) {
       if (strcmp(key, "Id") == 0) {
         copyField(self->entry.tagId, sizeof(self->entry.tagId), value, len);
       } else if (strcmp(key, "Name") == 0) {
-        copyField(self->entry.tagName, sizeof(self->entry.tagName), value, len);
+        kobo::copyNormalizedField(self->entry.tagName, sizeof(self->entry.tagName), value, len);
       }
       break;
     case Ctx::TagItem:

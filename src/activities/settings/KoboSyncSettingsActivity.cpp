@@ -24,17 +24,17 @@ namespace fui = freeink::ui;
 namespace {
 constexpr int IDX_SERVER_URL = 0;
 constexpr int IDX_AUTH_TOKEN = 1;
-constexpr int IDX_TEST_CONNECTION = 2;
-constexpr int IDX_SYNC_NOW = 3;
+constexpr int IDX_SYNC_NOW = 2;
+constexpr int IDX_AUTO_DOWNLOAD = 3;
 constexpr int IDX_SYNC_BEHAVIOR = 4;
 constexpr int IDX_SYNC_ON_OPEN = 5;
 constexpr int IDX_BROWSE_SHELF = 6;
 constexpr int IDX_CLEAR = 7;
 
 constexpr StrId menuNames[KoboSyncSettingsActivity::MENU_ITEMS] = {
-    StrId::STR_KOBO_SERVER_URL,   StrId::STR_KOBO_AUTH_TOKEN,       StrId::STR_KOBO_TEST_CONNECTION,
-    StrId::STR_KOBO_SYNC_NOW,     StrId::STR_SYNC_BEHAVIOR,         StrId::STR_KOBO_SYNC_ON_OPEN,
-    StrId::STR_KOBO_BROWSE_SHELF, StrId::STR_KOBO_CLEAR_CREDENTIALS};
+    StrId::STR_KOBO_SERVER_URL,    StrId::STR_KOBO_AUTH_TOKEN,      StrId::STR_KOBO_SYNC_NOW,
+    StrId::STR_KOBO_AUTO_DOWNLOAD, StrId::STR_SYNC_BEHAVIOR,        StrId::STR_KOBO_SYNC_ON_OPEN,
+    StrId::STR_KOBO_BROWSE_SHELF,  StrId::STR_KOBO_CLEAR_CREDENTIALS};
 }  // namespace
 
 KoboSyncSettingsActivity::KoboSyncSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -65,30 +65,37 @@ void KoboSyncSettingsActivity::activateIndex(const int index) {
                            [this](const ActivityResult& result) {
                              if (result.isCancelled) return;
                              const std::string& text = std::get<KeyboardResult>(result.data).text;
-                             KOBO_STORE.setEndpoint(text == "http://" || text == "https://" ? "" : text);
+                             const std::string previousEndpoint = KOBO_STORE.getEndpoint();
+                             const std::string previousToken = KOBO_STORE.getAuthToken();
+                             if (!KOBO_STORE.setEndpoint(text == "http://" || text == "https://" ? "" : text)) {
+                               return;
+                             }
                              KOBO_STORE.saveToFile();
                              // Rows and path links belong to the previous server/user identity.
-                             KoboCatalog::removeAll();
+                             // Confirming the unchanged value must not wipe the catalog.
+                             if (previousEndpoint != KOBO_STORE.getEndpoint() ||
+                                 previousToken != KOBO_STORE.getAuthToken()) {
+                               KoboCatalog::removeAll();
+                             }
                            });
   } else if (index == IDX_AUTH_TOKEN) {
     startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_KOBO_AUTH_TOKEN),
                                                                    KOBO_STORE.getAuthToken(), 64, InputType::Text),
                            [this](const ActivityResult& result) {
                              if (result.isCancelled) return;
+                             const std::string previousToken = KOBO_STORE.getAuthToken();
                              KOBO_STORE.setAuthToken(std::get<KeyboardResult>(result.data).text);
                              KOBO_STORE.saveToFile();
-                             KoboCatalog::removeAll();
+                             if (previousToken != KOBO_STORE.getAuthToken()) KoboCatalog::removeAll();
                            });
-  } else if (index == IDX_TEST_CONNECTION) {
-    if (!KOBO_STORE.hasCredentials()) return;
-    startActivityForResult(
-        std::make_unique<KoboSyncActionActivity>(renderer, mappedInput, KoboSyncActionActivity::Mode::TEST_CONNECTION),
-        [](const ActivityResult&) {});
   } else if (index == IDX_SYNC_NOW) {
     if (!KOBO_STORE.hasCredentials()) return;
-    startActivityForResult(
-        std::make_unique<KoboSyncActionActivity>(renderer, mappedInput, KoboSyncActionActivity::Mode::SYNC_NOW),
-        [](const ActivityResult&) {});
+    startActivityForResult(std::make_unique<KoboSyncActionActivity>(renderer, mappedInput),
+                           [](const ActivityResult&) {});
+  } else if (index == IDX_AUTO_DOWNLOAD) {
+    KOBO_STORE.setAutoDownload(!KOBO_STORE.getAutoDownload());
+    KOBO_STORE.saveToFile();
+    requestUpdate();
   } else if (index == IDX_SYNC_BEHAVIOR) {
     constexpr StrId behaviorNames[2] = {StrId::STR_ASK_EVERY_TIME, StrId::STR_SMART_SYNC};
     optionPopup.show(
@@ -135,13 +142,14 @@ void KoboSyncSettingsActivity::buildScreen(UiScreen& screen) {
     } else if (i == IDX_SYNC_BEHAVIOR) {
       rowValues_[i] =
           KOBO_STORE.getSyncBehavior() == KoboSyncBehavior::SMART ? tr(STR_SMART_SYNC) : tr(STR_ASK_EVERY_TIME);
-    } else if (i == IDX_TEST_CONNECTION || i == IDX_SYNC_NOW || i == IDX_BROWSE_SHELF || i == IDX_CLEAR) {
+    } else if (i == IDX_SYNC_NOW || i == IDX_BROWSE_SHELF || i == IDX_CLEAR) {
       rowValues_[i] = configured ? "" : std::string("[") + tr(STR_KOBO_NO_CREDENTIALS) + "]";
     } else {
       rowValues_[i].clear();
     }
     rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
   }
+  GUI.setCheckboxRow(rowItems_[IDX_AUTO_DOWNLOAD], KOBO_STORE.getAutoDownload());
   GUI.setCheckboxRow(rowItems_[IDX_SYNC_ON_OPEN], KOBO_STORE.getSyncOnOpen());
 
   fui::ListProps props;

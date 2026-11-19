@@ -20,6 +20,8 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "HapticFeedback.h"
+#include "KoboCredentialStore.h"
+#include "KoboSyncConfig.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
@@ -27,14 +29,57 @@
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Library, File transfer, Settings
-  if (!recentBooks.empty()) {
-    count += recentBooks.size();
+  return static_cast<int>(recentBooks.size()) + menuItemCount;
+}
+
+void HomeActivity::buildMenuOrder() {
+  menuItemCount = 0;
+  const auto add = [this](const HomeMenuItem item) {
+    if (menuItemCount >= MAX_MENU_ITEMS) return;
+    menuOrder[menuItemCount++] = item;
+  };
+#if CROSSPOINT_KOBO_SYNC
+  if (hasKobo) {
+    add(HomeMenuItem::KOBO_SHELF);
+    add(HomeMenuItem::KOBO_SYNC);
+    add(HomeMenuItem::FILE_BROWSER);
+    add(HomeMenuItem::LIBRARY);
+    add(HomeMenuItem::SETTINGS_MENU);
+    return;
   }
-  if (slotItem() != HomeMenuItem::NONE) {
-    count++;
+#endif
+  add(HomeMenuItem::FILE_BROWSER);
+  add(HomeMenuItem::LIBRARY);
+  const HomeMenuItem slot = slotItem();
+  if (slot != HomeMenuItem::NONE) add(slot);
+  add(HomeMenuItem::FILE_TRANSFER);
+  add(HomeMenuItem::SETTINGS_MENU);
+}
+
+int HomeActivity::menuItemToIndex(const HomeMenuItem item) const {
+  for (int i = 0; i < menuItemCount; ++i) {
+    if (menuOrder[i] == item) return i;
   }
-  return count;
+  // OPDS browsing can also be reached through File Transfer; return there when
+  // Home has no OPDS row of its own.
+  if (item == HomeMenuItem::OPDS_BROWSER) {
+    for (int i = 0; i < menuItemCount; ++i) {
+      if (menuOrder[i] == HomeMenuItem::FILE_TRANSFER) return i;
+    }
+  }
+  // The Kobo layout has none of these rows; Settings owns their fallback
+  // entries and is the closest reachable row.
+  if (item == HomeMenuItem::OPDS_BROWSER || item == HomeMenuItem::FILE_TRANSFER ||
+      item == HomeMenuItem::PLUGINS) {
+    for (int i = 0; i < menuItemCount; ++i) {
+      if (menuOrder[i] == HomeMenuItem::SETTINGS_MENU) return i;
+    }
+  }
+  return 0;
+}
+
+HomeMenuItem HomeActivity::indexToMenuItem(const int idx) const {
+  return idx >= 0 && idx < menuItemCount ? menuOrder[idx] : HomeMenuItem::NONE;
 }
 
 void HomeActivity::loadRecentBooks(int maxBooks) {
@@ -237,6 +282,12 @@ void HomeActivity::onEnter() {
   // even when no SD plugins are installed yet so Plugin Hub can be installed
   // from inside the Plugins screen (or users can sideload plugins manually).
   hasPlugins = SETTINGS.pluginsEnabled != 0;
+#if CROSSPOINT_KOBO_SYNC
+  // Credentials can change between Home visits.
+  KOBO_STORE.loadFromFile();
+#endif
+  hasKobo = koboHomeLayout();
+  buildMenuOrder();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
@@ -249,16 +300,16 @@ void HomeActivity::onEnter() {
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
-    const HomeMenuItem slot = slotItem();
+    const HomeMenuItem slot = hasKobo ? HomeMenuItem::NONE : slotItem();
     coverGridUi->begin(recentBooks,
                        slot == HomeMenuItem::PLUGINS        ? CoverGridHomeUi::SlotTab::PLUGINS
                        : slot == HomeMenuItem::OPDS_BROWSER ? CoverGridHomeUi::SlotTab::OPDS
                                                             : CoverGridHomeUi::SlotTab::NONE,
-                       hasContinueReading);
+                       hasContinueReading, hasKobo);
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, slotItem());
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem);
 
   // Trigger first update
   requestUpdate();
@@ -320,7 +371,7 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, slotItem())) {
+    switch (indexToMenuItem(menuIndex)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -339,8 +390,16 @@ void HomeActivity::loop() {
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
         break;
-      default:
+      case HomeMenuItem::NONE:
         break;
+#if CROSSPOINT_KOBO_SYNC
+      case HomeMenuItem::KOBO_SHELF:
+        onKoboShelfOpen();
+        break;
+      case HomeMenuItem::KOBO_SYNC:
+        onKoboSyncOpen();
+        break;
+#endif
     }
   };
 
@@ -548,14 +607,50 @@ void HomeActivity::render(RenderLock&&) {
                           recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
-  // Build menu items dynamically
-  std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
-                                        tr(STR_SETTINGS_TITLE)};
-  std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
-
-  if (slotItem() != HomeMenuItem::NONE) {
-    menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, hasPlugins ? Plugins : Book);
+  // Build menu items from the order chosen in onEnter().
+  std::vector<const char*> menuItems;
+  std::vector<UIIcon> menuIcons;
+  menuItems.reserve(menuItemCount + 1);
+  menuIcons.reserve(menuItemCount + 1);
+  for (int i = 0; i < menuItemCount; ++i) {
+    switch (menuOrder[i]) {
+      case HomeMenuItem::FILE_BROWSER:
+        menuItems.push_back(tr(STR_BROWSE_FILES));
+        menuIcons.push_back(Folder);
+        break;
+      case HomeMenuItem::LIBRARY:
+        menuItems.push_back(tr(STR_LIBRARY));
+        menuIcons.push_back(Library);
+        break;
+      case HomeMenuItem::PLUGINS:
+        menuItems.push_back(tr(STR_PLUGINS));
+        menuIcons.push_back(Plugins);
+        break;
+      case HomeMenuItem::OPDS_BROWSER:
+        menuItems.push_back(tr(STR_OPDS_BROWSER));
+        menuIcons.push_back(Book);
+        break;
+      case HomeMenuItem::FILE_TRANSFER:
+        menuItems.push_back(tr(STR_FILE_TRANSFER));
+        menuIcons.push_back(Transfer);
+        break;
+      case HomeMenuItem::SETTINGS_MENU:
+        menuItems.push_back(tr(STR_SETTINGS_TITLE));
+        menuIcons.push_back(Settings);
+        break;
+      case HomeMenuItem::NONE:
+        break;
+#if CROSSPOINT_KOBO_SYNC
+      case HomeMenuItem::KOBO_SHELF:
+        menuItems.push_back(tr(STR_KOBO_LIBRARY));
+        menuIcons.push_back(Book);
+        break;
+      case HomeMenuItem::KOBO_SYNC:
+        menuItems.push_back(tr(STR_KOBO_SYNC));
+        menuIcons.push_back(Transfer);
+        break;
+#endif
+    }
   }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -601,3 +696,9 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(); }
+
+#if CROSSPOINT_KOBO_SYNC
+void HomeActivity::onKoboShelfOpen() { activityManager.goToKoboShelf(); }
+
+void HomeActivity::onKoboSyncOpen() { activityManager.goToKoboSync(); }
+#endif

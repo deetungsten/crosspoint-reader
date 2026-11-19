@@ -1,8 +1,10 @@
 #pragma once
+#include <array>
 #include <functional>
 #include <vector>
 
 #include "./FileBrowserActivity.h"
+#include "KoboSyncConfig.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "components/CoverGridHomeUi.h"
@@ -19,13 +21,22 @@ class HomeActivity final : public Activity {
   bool firstRenderDone = false;
   bool hasOpdsServers = false;
   bool hasPlugins = false;
+  bool hasKobo = false;
+  // Ordered menu rows, rebuilt in onEnter() after the visibility flags settle.
+  // The Kobo layout is fixed; the other builds keep their conditional slot.
+  static constexpr int MAX_MENU_ITEMS = 5;
+  std::array<HomeMenuItem, MAX_MENU_ITEMS> menuOrder{};
+  int menuItemCount = 0;
   // The home "library" slot (index 2) shows Plugins while the plugin system is
   // enabled, otherwise OPDS when a server is configured. NONE hides the slot.
-  // NetworkModeSelectionActivity lists OPDS in exactly the other cases.
+  // Only the non-Kobo layout uses it.
   HomeMenuItem slotItem() const {
     if (hasPlugins) return HomeMenuItem::PLUGINS;
     return hasOpdsServers ? HomeMenuItem::OPDS_BROWSER : HomeMenuItem::NONE;
   }
+  void buildMenuOrder();
+  int menuItemToIndex(HomeMenuItem item) const;
+  HomeMenuItem indexToMenuItem(int idx) const;
   bool hasContinueReading = false;
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
@@ -44,33 +55,6 @@ class HomeActivity final : public Activity {
   const HomeMenuItem initialMenuItem;
   const bool cleanInitialRefresh;
 
-  // Convert HomeMenuItem to menu index (used in onEnter)
-  static int menuItemToIndex(HomeMenuItem item, HomeMenuItem slot) {
-    int i = 0;
-    if (item == HomeMenuItem::FILE_BROWSER) return i;
-    ++i;
-    if (item == HomeMenuItem::LIBRARY) return i;
-    ++i;
-    if (slot != HomeMenuItem::NONE && item == slot) return i;
-    if (item == HomeMenuItem::PLUGINS) return 0;
-    if (slot != HomeMenuItem::NONE) ++i;
-    // File Transfer also opens the OPDS browser, so it returns there without its slot.
-    if (item == HomeMenuItem::FILE_TRANSFER || item == HomeMenuItem::OPDS_BROWSER) return i;
-    ++i;
-    if (item == HomeMenuItem::SETTINGS_MENU) return i;
-    return 0;
-  }
-
-  // Convert menu index to HomeMenuItem (used in loop)
-  static HomeMenuItem indexToMenuItem(int idx, HomeMenuItem slot) {
-    int i = 0;
-    if (idx == i++) return HomeMenuItem::FILE_BROWSER;
-    if (idx == i++) return HomeMenuItem::LIBRARY;
-    if (slot != HomeMenuItem::NONE && idx == i++) return slot;
-    if (idx == i++) return HomeMenuItem::FILE_TRANSFER;
-    if (idx == i) return HomeMenuItem::SETTINGS_MENU;
-    return HomeMenuItem::NONE;
-  }
   void onRecentBookSelected(const std::string& path);
   void onFileBrowserOpen();
   void onLibraryOpen();
@@ -78,6 +62,10 @@ class HomeActivity final : public Activity {
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
   void onPluginsOpen();
+#if CROSSPOINT_KOBO_SYNC
+  void onKoboShelfOpen();
+  void onKoboSyncOpen();
+#endif
 
   int getMenuItemCount() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image

@@ -1,9 +1,11 @@
 add_executable(KoboSyncTest
   KoboSyncTokenTest.cpp
   KoboFeedParserTest.cpp
+  KoboDownloadPlanTest.cpp
   ${REPO_ROOT}/lib/KoboSync/KoboSyncToken.cpp
   ${REPO_ROOT}/lib/KoboSync/KoboSyncTime.cpp
   ${REPO_ROOT}/lib/KoboSync/KoboFeedParser.cpp
+  ${REPO_ROOT}/lib/Utf8/Utf8.cpp
   ${REPO_ROOT}/freeink-sdk/libs/network/JsonSax/src/StreamingJsonParser.cpp
 )
 

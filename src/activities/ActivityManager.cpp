@@ -9,6 +9,8 @@
 #include <Memory.h>
 #include <VectorFontSupport.h>
 
+#include "KoboSyncConfig.h"
+
 #include <algorithm>
 
 #include "Activity.h"
@@ -22,12 +24,14 @@
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
+#include "library/KoboShelfActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
 #include "plugins/PluginCatalogActivity.h"
 #include "reader/ReaderActivity.h"
 #include "reader/RemoteTurnGate.h"
+#include "settings/KoboSyncActionActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsListActivity.h"
 #include "util/BmpViewerActivity.h"
@@ -324,6 +328,26 @@ void ActivityManager::goToPlugins() {
   replaceActivity(std::make_unique<PluginCatalogActivity>(renderer, mappedInput, /*rootMode=*/true));
 }
 
+#if CROSSPOINT_KOBO_SYNC
+void ActivityManager::goToKoboShelf() {
+  auto activity = makeUniqueNoThrow<KoboShelfActivity>(renderer, mappedInput);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: Kobo shelf");
+    return;
+  }
+  replaceActivity(std::move(activity));
+}
+
+void ActivityManager::goToKoboSync() {
+  auto activity = makeUniqueNoThrow<KoboSyncActionActivity>(renderer, mappedInput, /*returnToHome=*/true);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: Kobo sync action");
+    return;
+  }
+  replaceActivity(std::move(activity));
+}
+#endif
+
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
   if (path.empty()) {
     goToFileBrowser("/");
@@ -371,6 +395,12 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::OPDS_BROWSER;
     } else if (activityName == "CrossPointWebServer") {
       initialMenuItem = HomeMenuItem::FILE_TRANSFER;
+#if CROSSPOINT_KOBO_SYNC
+    } else if (activityName == "KoboShelf") {
+      initialMenuItem = HomeMenuItem::KOBO_SHELF;
+    } else if (activityName == "KoboSyncAction") {
+      initialMenuItem = HomeMenuItem::KOBO_SYNC;
+#endif
     } else if (activityName == "Settings" || activityName == "SettingsList") {
       initialMenuItem = HomeMenuItem::SETTINGS_MENU;
     }

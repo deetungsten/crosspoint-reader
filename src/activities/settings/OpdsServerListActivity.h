@@ -39,5 +39,7 @@ class OpdsServerListActivity final : public UiListActivity {
   void rebuildRowItems();
 
   int getItemCount() const;
+  // True when Home has no OPDS entry, so this screen keeps catalog browsing reachable.
+  bool hasBrowserRow() const;
   void handleSelection();
 };

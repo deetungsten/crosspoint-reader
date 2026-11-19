@@ -95,9 +95,10 @@ Response:
 Hidden dotfiles are omitted unless the device setting `showHiddenFiles` is
 enabled. `System Volume Information` and `XTCache` are always hidden/protected.
 
-The saved-credential stores (`/.crosspoint/wifi.json`, `opds.json`,
-`koreader.json`) can never be downloaded, uploaded, renamed, moved, deleted or
-written by a plugin over the network, however the path is spelled.
+The saved-credential stores (`/.crosspoint/{wifi,opds,koreader,kobo}.json`) can
+never be downloaded, uploaded, renamed, moved, deleted or written as files over
+the network, however the path is spelled. The credential APIs below write them
+through the on-device stores instead.
 
 ### `GET /download`
 
@@ -457,6 +458,70 @@ curl -X POST \
   -d '{"index":0}' \
   http://crosspoint.local/api/wifi/delete
 ```
+
+## Kobo Sync Credential API
+
+Available in builds with Kobo sync enabled (`CROSSPOINT_KOBO_SYNC`).
+
+### `GET /api/kobo`
+
+Returns whether Kobo sync credentials are configured, plus the saved endpoint.
+`configured` is true only when both an endpoint and a token are saved. The auth
+token is never returned. See [Kobo Sync](kobo-sync.md) for creating the token in
+calibre-web.
+
+```bash
+curl http://crosspoint.local/api/kobo
+```
+
+Response:
+
+```json
+{
+  "configured": true,
+  "endpoint": "http://calibre.local:8083"
+}
+```
+
+### `POST /api/kobo`
+
+Saves the calibre-web endpoint and per-user auth token. `endpoint` and `token`
+are both optional; an empty or omitted field leaves the saved value unchanged.
+Send either `endpoint` or `apiEndpoint`, not both.
+
+`apiEndpoint` accepts the full `.../kobo/<token>` URL shown by calibre-web and
+splits it into the endpoint and token. The combined URL is validated against the
+endpoint (128 bytes) and token (64 bytes) limits. `endpoint` also accepts a
+full form that fits its 128-byte field limit. If `token` is supplied with
+`apiEndpoint` or a full-form `endpoint`, it overrides the token from the URL.
+Changing the endpoint or token clears the saved Kobo catalog; the next sync
+rebuilds it.
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"http://calibre.local:8083","token":"secret"}' \
+  http://crosspoint.local/api/kobo
+```
+
+The combined form is accepted too:
+
+```bash
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"apiEndpoint":"http://calibre.local:8083/kobo/secret"}' \
+  http://crosspoint.local/api/kobo
+```
+
+Successful response:
+
+```json
+{"ok":true}
+```
+
+Errors return `400` with `{"error":"..."}` for missing, malformed, or non-object
+JSON, a value over the store's length limit, or both `endpoint` and
+`apiEndpoint`, and `500` if the credentials cannot be saved.
 
 ## WebSocket Upload
 

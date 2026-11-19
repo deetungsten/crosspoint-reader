@@ -15,11 +15,12 @@ and the firmware carries no vendor names, URLs, or file-format knowledge.
 ```
 
 **Discovery and the on-device list.** The plugin subsystem is controlled by
-**Settings → Connectivity → Plugins**. When enabled, **Plugins** is
-shown on the Home screen even when no plugins are installed. Every plugin folder
-(anything holding a `manifest.json`, `plugin.js`, or `device.json`) appears under
-**Home → Plugins**, showing its `title` and one-line `description`. Selecting a
-plugin with an on-device catalog (`device.json`
+**Settings → Connectivity → Plugins**. When enabled, **Plugins** is shown on
+the Home screen even when no plugins are installed; in the Kobo Home layout it
+is reached from **Settings → Connectivity → Plugin Catalog** instead. Every
+plugin folder (anything holding a `manifest.json`, `plugin.js`, or `device.json`)
+appears in the Plugins catalog, showing its `title` and one-line `description`.
+Selecting a plugin with an on-device catalog (`device.json`
 with `browse.url`) opens that catalog. Selecting any other plugin shows its
 `README.md` (up to 16KB, as plain paged text) when it has one, so even a
 browser-only plugin (no `device.json`) can explain how to use it from the web
@@ -59,8 +60,10 @@ Hub is considered available when the first matching `pluginhub` directory has a
 `device.json` and is not quarantined by `.installing`; `manifest.json`,
 `plugin.js`, and `README.md` are not required for native availability. When
 plugins are enabled, no native Hub is available, and the installer has not
-been hidden, **Home → Plugins** contains a synthetic **Plugin Hub — Download,
-discover, and update plugins** entry. Selecting it offers:
+been hidden, the Plugins catalog (**Home → Plugins**, or **Settings →
+Connectivity → Plugin Catalog** in the Kobo Home layout) contains a synthetic
+**Plugin Hub — Download, discover, and update plugins** entry. Selecting it
+offers:
 
 - **Install** — download and install Plugin Hub over Wi-Fi. Backing out of the
   Wi-Fi selector cancels installation, turns Wi-Fi back off, and returns to the
@@ -151,7 +154,8 @@ api.registerAction('myaction', async (args) => {
 ## Surface 3: on-device manifests and catalog screens (`device.json`)
 
 A declarative manifest the firmware's generic `PluginCatalogActivity` renders
-under **Home → Plugins**. It expresses "authenticated JSON
+in the Plugins catalog (**Home → Plugins**, or **Settings → Connectivity →
+Plugin Catalog** in the Kobo Home layout). It expresses "authenticated JSON
 catalog: sign in, browse, download, sidecar" — enough for most book services —
 without any code running on the device. Anything beyond this vocabulary
 belongs in `plugin.js`.
@@ -257,7 +261,7 @@ JSON catalogs may also map `description`, `detail_author`, and `repository` for 
   "title": "Service Name",                  // menu label; defaults to folder name
 
   // Relative paths are in the plugin's own folder; absolute paths work too.
-  // The credential stores (wifi/opds/koreader .json) are refused.
+  // The credential stores (wifi/opds/koreader/kobo .json) are refused.
   "token": {                                // omit for token-less catalogs
     "file": "token.json",                   // written by auth (either side)
     "path": "token"                         // dotted JSON path inside the file
@@ -504,7 +508,9 @@ JSON catalogs may also map `description`, `detail_author`, and `repository` for 
 ### Testing a new manifest
 
 1. Copy the plugin folder to `/.crosspoint/plugins/<name>/` on the SD card.
-2. Enable **Settings → Connectivity → Plugins**, then open **Home → Plugins → your title**. With no token and no `auth`
+2. Enable **Settings → Connectivity → Plugins**, then open the Plugins catalog
+   (**Home → Plugins**, or **Settings → Connectivity → Plugin Catalog** in the
+   Kobo Home layout) and select your title. With no token and no `auth`
    block you should see the not-signed-in screen; with `auth`, the code/QR
    screen.
 3. Watch serial (`[PCAT]` tag) for request/parse failures — the log includes

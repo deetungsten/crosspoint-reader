@@ -43,6 +43,9 @@ class CatalogActivity : public UiListActivity {
   virtual void performSearch(const std::string& query) = 0;
   virtual void downloadFinished(bool cancelled) = 0;
   virtual void wifiSelectionCancelled();
+  // Network catalogs normally reboot after releasing Wi-Fi to defragment the
+  // heap. Screens that must return in place override this.
+  virtual bool restartsOnExit() const { return true; }
   // Initial keyboard text when search opens (refining the active query).
   virtual std::string searchPrefill() const { return {}; }
 
@@ -71,6 +74,9 @@ class CatalogActivity : public UiListActivity {
                                              const std::vector<HttpDownloader::Header>& headers = {},
                                              const std::string* postBody = nullptr,
                                              const char* postContentType = nullptr);
+  // True when the transfer was cancelled by the Home gesture, so a batch
+  // downloader must leave the activity instead of returning to its list.
+  bool downloadCancelGoesHome() const { return goHomeAfterCancel; }
   void screenHeader(UiScreen& screen, const char* title);
   bool buildStatusScreen(UiScreen& screen, bool boldError = true, bool showDownloadTotal = false);
 

@@ -85,6 +85,61 @@ TEST(KoboFeedParserTest, ParsesCalibreWebFeed) {
   EXPECT_STREQ(firstTag->tagId, "33333333-3333-4333-8333-333333333333");
 }
 
+TEST(KoboFeedParserTest, NormalizesTypographicPunctuationInCatalogFields) {
+  const std::string json = R"([{"NewEntitlement":{"BookEntitlement":{"Id":"11111111-1111-4111-8111-111111111111"},"BookMetadata":{"Title":"Death\u2019s End \u2018x\u2019 \u201A \u201B \u201Cq\u201D \u201E\u201F \u2039y\u203A \u2013 \u2014 \u2015 \u2026\u00A020\u00B0","Contributors":["O\u2019Malley"],"Series":{"Name":"A\u2013B"}}}},{"NewTag":{"Tag":{"Id":"33333333-3333-4333-8333-333333333333","Name":"F\u2019avourites","Items":[{"RevisionId":"11111111-1111-4111-8111-111111111111"}]}}}])";
+  const auto entries = parse(json);
+
+  const auto* book = findEntry(entries, "11111111-1111-4111-8111-111111111111", kobo::EntryKind::Book);
+  ASSERT_NE(book, nullptr);
+  EXPECT_STREQ(book->title, "Death's End 'x' ' ' \"q\" \"\" 'y' - - - ... 20\xC2\xB0");
+  EXPECT_STREQ(book->author, "O'Malley");
+  EXPECT_STREQ(book->series, "A-B");
+
+  const auto* tag = findEntry(entries, "11111111-1111-4111-8111-111111111111", kobo::EntryKind::Tag);
+  ASSERT_NE(tag, nullptr);
+  EXPECT_STREQ(tag->tagName, "F'avourites");
+}
+
+TEST(KoboFeedParserTest, NormalizesCp1252PunctuationBytes) {
+  std::string json =
+      "[{\"NewEntitlement\":{\"BookEntitlement\":{\"Id\":\"11111111-1111-4111-8111-111111111111\"},"
+      "\"BookMetadata\":{\"Title\":\"Death";
+  json += '\x92';
+  json += "s \x93quoted\x94 \x96";
+  json += "dash\x97 \x85";
+  json += "end\"}}}]";
+  const auto entries = parse(json);
+
+  const auto* book = findEntry(entries, "11111111-1111-4111-8111-111111111111", kobo::EntryKind::Book);
+  ASSERT_NE(book, nullptr);
+  EXPECT_STREQ(book->title, "Death's \"quoted\" -dash- ...end");
+}
+
+TEST(KoboFeedParserTest, NormalizesExtendedCp1252QuotesAndNbsp) {
+  std::string json =
+      "[{\"NewEntitlement\":{\"BookEntitlement\":{\"Id\":\"11111111-1111-4111-8111-111111111111\"},"
+      "\"BookMetadata\":{\"Title\":\"";
+  json += '\x84';
+  json += "Die";
+  json += '\x93';
+  json += " ";
+  json += '\x82';
+  json += "single";
+  json += '\x92';
+  json += " ";
+  json += '\x8B';
+  json += "angle";
+  json += '\x9B';
+  json += " ";
+  json += '\xA0';
+  json += "nbsp\"}}}]";
+  const auto entries = parse(json);
+
+  const auto* book = findEntry(entries, "11111111-1111-4111-8111-111111111111", kobo::EntryKind::Book);
+  ASSERT_NE(book, nullptr);
+  EXPECT_STREQ(book->title, "\"Die\" 'single' 'angle'  nbsp");
+}
+
 TEST(KoboFeedParserTest, ChunkBoundariesDoNotChangeResult) {
   const std::string json = readFixture();
   const auto whole = parse(json);

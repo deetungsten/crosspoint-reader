@@ -12,7 +12,7 @@
 #include <cstring>
 
 namespace {
-constexpr uint8_t CONFIG_VERSION = 1;
+constexpr uint8_t CONFIG_VERSION = 2;
 
 void trimTrailingSlashes(std::string& value) {
   while (!value.empty() && value.back() == '/') value.pop_back();
@@ -46,6 +46,7 @@ void KoboCredentialStore::toJson(JsonDocument& doc) const {
   doc["lastSyncTime"] = lastSyncTime;
   doc["syncBehavior"] = static_cast<uint8_t>(syncBehavior);
   doc["syncOnOpen"] = syncOnOpen;
+  doc["autoDownload"] = autoDownload;
   doc["skipOpenSync"] = skipOpenSync;
   doc["pendingContentId"] = pendingContentId;
   doc["pendingProgressBp"] = pendingProgressBp;
@@ -68,6 +69,9 @@ bool KoboCredentialStore::fromJson(JsonVariantConst doc) {
   syncBehavior = behavior == static_cast<uint8_t>(KoboSyncBehavior::ASK_EVERY_TIME) ? KoboSyncBehavior::ASK_EVERY_TIME
                                                                                     : KoboSyncBehavior::SMART;
   syncOnOpen = doc["syncOnOpen"] | false;
+  // cfgVersion 1 had no auto-download key; new installs and upgrades default
+  // to downloading the library, matching the Kobo-style behavior.
+  autoDownload = doc["autoDownload"] | true;
   skipOpenSync = doc["skipOpenSync"] | false;
   pendingContentId = bounded(doc["pendingContentId"] | "", 36);
   pendingProgressBp = doc["pendingProgressBp"] | static_cast<uint16_t>(0);
@@ -89,31 +93,42 @@ void KoboCredentialStore::ensureDeviceId() {
   saveToFile();
 }
 
-void KoboCredentialStore::setEndpoint(const std::string& value) {
-  std::string next = bounded(value, MAX_ENDPOINT);
+bool KoboCredentialStore::setEndpoint(const std::string& value, const bool useUrlToken) {
+  // The longest valid combined URL is MAX_ENDPOINT + "/kobo/" + MAX_TOKEN.
+  // Reject before copying so a huge request body cannot amplify heap use.
+  if (value.size() > MAX_ENDPOINT + 6 + MAX_TOKEN + 2) return false;
+
+  std::string next = value;
   while (!next.empty() && (next.back() == ' ' || next.back() == '\t')) next.pop_back();
   while (!next.empty() && (next.front() == ' ' || next.front() == '\t')) next.erase(next.begin());
   // calibre-web's "Kobo Sync Key" page shows the full api_endpoint including
-  // "/kobo/<token>". Accept that paste: split the token out when the field is
-  // still empty and keep only the base URL, which is what the routes expect.
+  // "/kobo/<token>". Accept that paste: split the token out and keep only the
+  // base URL, which is what the routes expect. Split before checking bounds so
+  // a long URL cannot truncate the token.
+  std::string splitToken;
   const size_t kobo = next.find("/kobo/");
   if (kobo != std::string::npos) {
     std::string tail = next.substr(kobo + 6);
     trimTrailingSlashes(tail);
     const size_t slash = tail.find('/');
     if (slash != std::string::npos) tail.resize(slash);
-    // A regenerated key is normally pasted as the full api_endpoint; let that
-    // replace an older token instead of silently keeping the stale one.
-    if (!tail.empty() && tail.size() < MAX_TOKEN && tail != authToken) {
-      authToken = tail;
-      clearSyncState();
-    }
+    splitToken = std::move(tail);
     next.resize(kobo);
   }
   while (!next.empty() && next.back() == '/') next.pop_back();
   if (next.size() > 5 && next.compare(next.size() - 5, 5, "/kobo") == 0) next.resize(next.size() - 5);
+
+  if (next.size() > MAX_ENDPOINT || (useUrlToken && splitToken.size() > MAX_TOKEN)) return false;
+
+  // A regenerated key is normally pasted as the full api_endpoint; let that
+  // replace an older token instead of silently keeping the stale one.
+  if (useUrlToken && !splitToken.empty() && splitToken != authToken) {
+    authToken = splitToken;
+    clearSyncState();
+  }
   if (next != endpoint) clearSyncState();
   endpoint = std::move(next);
+  return true;
 }
 
 std::string KoboCredentialStore::getBaseUrl() const {

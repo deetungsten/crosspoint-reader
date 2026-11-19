@@ -765,7 +765,10 @@ void EpubReaderActivity::loop() {
     koboOpenSyncChecked = true;
     if (KOBO_STORE.consumeSkipOpenSync()) {
       KOBO_STORE.saveToFile();
-    } else if (KOBO_STORE.getSyncOnOpen() && KOBO_STORE.hasCredentials()) {
+    } else if (KOBO_STORE.getSyncOnOpen() && KOBO_STORE.hasCredentials() &&
+               WiFi.status() == WL_CONNECTED) {
+      // Automatic position sync is best effort: only use an existing link and
+      // never interrupt opening a local book with a Wi-Fi picker.
       std::string contentId;
       if (KoboCatalog::contentIdForPath(epub->getPath(), contentId) && launchKoboStatusSync(contentId)) {
         return;

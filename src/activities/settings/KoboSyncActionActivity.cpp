@@ -7,6 +7,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -15,7 +16,7 @@
 #include "KoboCredentialStore.h"
 #include "KoboSyncClient.h"
 #include "MappedInputManager.h"
-#include "SilentRestart.h"
+#include "activities/library/KoboShelfActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -23,7 +24,7 @@
 void KoboSyncActionActivity::onEnter() {
   Activity::onEnter();
   state = State::RUNNING;
-  statusMessage = mode == Mode::TEST_CONNECTION ? tr(STR_KOBO_TEST_CONNECTION) : tr(STR_KOBO_SYNCING);
+  statusMessage = tr(STR_KOBO_SYNCING);
 
   if (WiFi.status() == WL_CONNECTED) {
     requestUpdate();
@@ -36,13 +37,11 @@ void KoboSyncActionActivity::onEnter() {
 
 void KoboSyncActionActivity::onExit() {
   Activity::onExit();
-  // A radio this activity brought up is released through the shared restart
-  // path; reusing the stack-owned Wi-Fi driver is what keeps the next network
-  // activity from starting with a fragmented heap.
+  // Release a radio this activity brought up without rebooting. WIFI_OFF also
+  // tears down the driver heap, which the removed restart used to reclaim.
   if (shouldTearDownWifiOnExit && WiFi.getMode() != WIFI_MODE_NULL) {
-    WiFi.disconnect(false);
-    delay(30);
-    silentRestart();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
   }
 }
 
@@ -70,36 +69,41 @@ void KoboSyncActionActivity::runAction() {
     return;
   }
 
-  KoboSyncClient::Error result = KoboSyncClient::NO_CREDENTIALS;
-  if (mode == Mode::TEST_CONNECTION) {
-    result = KoboSyncClient::testConnection();
-  } else {
-    KoboCatalog catalog;
-    if (!catalog.open()) {
-      state = State::FAILED;
-      statusMessage = tr(STR_MEMORY_ERROR);
-      requestUpdate(true);
-      return;
-    }
-    KoboSyncClient::SyncStats stats;
-    result = KoboSyncClient::syncCatalog(catalog, stats);
-    catalog.close();
-    if (result == KoboSyncClient::OK) {
-      char message[64];
-      snprintf(message, sizeof(message), tr(STR_KOBO_BOOKS_SYNCED), static_cast<unsigned>(stats.books));
-      statusMessage = message;
-    }
+  KoboCatalog catalog;
+  if (!catalog.open()) {
+    state = State::FAILED;
+    statusMessage = tr(STR_MEMORY_ERROR);
+    requestUpdate(true);
+    return;
+  }
+  KoboSyncClient::SyncStats stats;
+  const auto result = KoboSyncClient::syncCatalog(catalog, stats);
+  catalog.close();
+  if (result == KoboSyncClient::OK) {
+    char message[64];
+    snprintf(message, sizeof(message), tr(STR_KOBO_BOOKS_SYNCED), static_cast<unsigned>(stats.books));
+    statusMessage = message;
   }
 
   if (result == KoboSyncClient::OK) {
     state = State::SUCCESS;
-    if (mode == Mode::TEST_CONNECTION) statusMessage = tr(STR_KOBO_CONNECTED);
   } else {
     state = State::FAILED;
     statusMessage = KoboSyncClient::errorString(result);
     LOG_ERR("KOBO", "Settings action failed: %s", statusMessage.c_str());
   }
   requestUpdate(true);
+
+  // New rows are waiting on SD; hand off to the shelf so the shared download
+  // screen can show per-book progress. The success screen stays underneath.
+  if (result == KoboSyncClient::OK && stats.books > 0 && KOBO_STORE.getAutoDownload()) {
+    auto shelf = makeUniqueNoThrow<KoboShelfActivity>(renderer, mappedInput, /*resumeDownloads=*/true);
+    if (!shelf) {
+      LOG_ERR("KOBO", "OOM: Kobo shelf for auto-download");
+      return;
+    }
+    activityManager.pushActivity(std::move(shelf));
+  }
 }
 
 void KoboSyncActionActivity::loop() {
@@ -115,6 +119,15 @@ void KoboSyncActionActivity::loop() {
   int tapY = 0;
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
       mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tapX, tapY)) {
+    finishAction();
+  }
+}
+
+void KoboSyncActionActivity::finishAction() {
+  if (returnToHome) {
+    // The manager maps the current activity name to the Kobo Sync Home row.
+    onGoHome();
+  } else {
     finish();
   }
 }
@@ -129,14 +142,10 @@ void KoboSyncActionActivity::render(RenderLock&&) {
   if (state == State::RUNNING) {
     renderer.drawCenteredText(UI_12_FONT_ID, midY, statusMessage.c_str(), true, EpdFontFamily::BOLD);
   } else if (state == State::SUCCESS) {
-    const char* heading = mode == Mode::TEST_CONNECTION ? tr(STR_KOBO_CONNECTED) : tr(STR_KOBO_SYNC_COMPLETE);
-    renderer.drawCenteredText(UI_12_FONT_ID, midY - 12, heading, true, EpdFontFamily::BOLD);
-    if (mode == Mode::SYNC_NOW) {
-      renderer.drawCenteredText(UI_10_FONT_ID, midY + 18, statusMessage.c_str());
-    }
+    renderer.drawCenteredText(UI_12_FONT_ID, midY - 12, tr(STR_KOBO_SYNC_COMPLETE), true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_10_FONT_ID, midY + 18, statusMessage.c_str());
   } else {
-    const char* heading = mode == Mode::TEST_CONNECTION ? tr(STR_KOBO_CONNECTION_FAILED) : tr(STR_KOBO_SYNC_FAILED);
-    renderer.drawCenteredText(UI_12_FONT_ID, midY - 12, heading, true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, midY - 12, tr(STR_KOBO_SYNC_FAILED), true, EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, midY + 18, statusMessage.c_str());
   }
 
