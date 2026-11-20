@@ -38,6 +38,15 @@ void EpubReaderBookmarksActivity::onEnter() {
   rebuildBookmarkRowItems();
 }
 
+#if CROSSPOINT_KOBO_SYNC
+void EpubReaderBookmarksActivity::releaseForNetworkSync() {
+  epub.reset();
+  bookmarks.clear();
+  bookmarkSubtitles.clear();
+  bookmarkRowItems.clear();
+}
+#endif
+
 // Derives bookmarkSubtitles/bookmarkRowItems from `bookmarks`. Called
 // whenever `bookmarks` changes (onEnter() load, post-delete) so buildScreen()
 // reuses the cached rows on every repaint instead of re-composing a

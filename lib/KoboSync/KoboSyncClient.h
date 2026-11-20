@@ -39,18 +39,26 @@ class KoboSyncClient {
     uint16_t pages = 0;
   };
 
+  // Called while a request is in flight, so a caller can abort without owning
+  // the blocking network call. C function pointer keeps this allocation-free on
+  // the C3's small heap.
+  using CancelPredicate = bool (*)(void*);
+
   // Pull every page of the incremental feed into `catalog`. The new sync token
   // is persisted only after the whole paging sequence succeeds, so an
   // interrupted sync repeats the same page set next time.
-  static Error syncCatalog(KoboCatalog& catalog, SyncStats& stats, const bool* cancelFlag = nullptr);
+  static Error syncCatalog(KoboCatalog& catalog, SyncStats& stats, CancelPredicate cancelPredicate = nullptr,
+                           void* cancelContext = nullptr);
 
-  static Error fetchMetadata(const std::string& contentId, kobo::Metadata& out);
+  static Error fetchMetadata(const std::string& contentId, kobo::Metadata& out,
+                             CancelPredicate cancelPredicate = nullptr, void* cancelContext = nullptr);
   static Error fetchReadingState(const std::string& contentId, kobo::ReadingState& out);
   static Error putReadingState(const std::string& contentId, float progressPercent, kobo::ReadStatus status,
-                               const std::string& location);
+                               const std::string& location, CancelPredicate cancelPredicate = nullptr,
+                               void* cancelContext = nullptr);
   // Uploads a position queued by the reader on close. Flushed after a
   // successful catalog sync so leaving a book never blocks on TLS.
-  static Error flushPendingProgress();
+  static Error flushPendingProgress(CancelPredicate cancelPredicate = nullptr, void* cancelContext = nullptr);
 
   static std::string coverUrl(const std::string& contentId, int width, int height);
 

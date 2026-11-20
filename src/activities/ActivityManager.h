@@ -142,6 +142,10 @@ class ActivityManager {
   bool skipLoopDelay() const;
   ScreenshotInfo getScreenshotInfo() const;
   void prepareForSleep();
+#if CROSSPOINT_KOBO_SYNC
+  // Frees rebuildable activity memory before the timeout pre-sleep sync.
+  void releaseForNetworkSync();
+#endif
 
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.

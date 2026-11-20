@@ -39,4 +39,7 @@ class EpubReaderChapterSelectionActivity final : public UiListActivity {
   explicit EpubReaderChapterSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                               const std::shared_ptr<Epub>& epub, int currentTocIndex);
   void onEnter() override;
+#if CROSSPOINT_KOBO_SYNC
+  void releaseForNetworkSync() override;
+#endif
 };

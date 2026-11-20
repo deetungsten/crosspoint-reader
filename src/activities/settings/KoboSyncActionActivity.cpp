@@ -12,7 +12,6 @@
 
 #include <cstdio>
 
-#include "KoboCatalog.h"
 #include "KoboCredentialStore.h"
 #include "KoboSyncClient.h"
 #include "MappedInputManager.h"
@@ -20,6 +19,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/KoboSyncService.h"
 
 void KoboSyncActionActivity::onEnter() {
   Activity::onEnter();
@@ -69,34 +69,22 @@ void KoboSyncActionActivity::runAction() {
     return;
   }
 
-  KoboCatalog catalog;
-  if (!catalog.open()) {
-    state = State::FAILED;
-    statusMessage = tr(STR_MEMORY_ERROR);
-    requestUpdate(true);
-    return;
-  }
-  KoboSyncClient::SyncStats stats;
-  const auto result = KoboSyncClient::syncCatalog(catalog, stats);
-  catalog.close();
-  if (result == KoboSyncClient::OK) {
+  const auto result = KoboSyncService::runFullSync(/*headless=*/false);
+  if (result.error == KoboSyncClient::OK) {
     char message[64];
-    snprintf(message, sizeof(message), tr(STR_KOBO_BOOKS_SYNCED), static_cast<unsigned>(stats.books));
+    snprintf(message, sizeof(message), tr(STR_KOBO_BOOKS_SYNCED), static_cast<unsigned>(result.books));
     statusMessage = message;
-  }
-
-  if (result == KoboSyncClient::OK) {
     state = State::SUCCESS;
   } else {
     state = State::FAILED;
-    statusMessage = KoboSyncClient::errorString(result);
+    statusMessage = result.catalogOpenFailed ? tr(STR_MEMORY_ERROR) : KoboSyncClient::errorString(result.error);
     LOG_ERR("KOBO", "Settings action failed: %s", statusMessage.c_str());
   }
   requestUpdate(true);
 
   // New rows are waiting on SD; hand off to the shelf so the shared download
   // screen can show per-book progress. The success screen stays underneath.
-  if (result == KoboSyncClient::OK && stats.books > 0 && KOBO_STORE.getAutoDownload()) {
+  if (result.error == KoboSyncClient::OK && result.books > 0 && KOBO_STORE.getAutoDownload()) {
     auto shelf = makeUniqueNoThrow<KoboShelfActivity>(renderer, mappedInput, /*resumeDownloads=*/true);
     if (!shelf) {
       LOG_ERR("KOBO", "OOM: Kobo shelf for auto-download");

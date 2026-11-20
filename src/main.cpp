@@ -36,6 +36,8 @@
 #include "KoboSyncConfig.h"
 #if CROSSPOINT_KOBO_SYNC
 #include "KoboCredentialStore.h"
+#include "KoboPreSleepSync.h"
+#include "network/KoboSyncService.h"
 #endif
 #include "LcpPassphraseStore.h"
 #include "MappedInputManager.h"
@@ -456,6 +458,56 @@ static bool holdSleepWhileUsbPowered() {
 #endif
 
 // Enter deep sleep mode
+#if CROSSPOINT_KOBO_SYNC
+static bool preSleepSyncCancelled(void*) {
+  // A button press stops the sync at the next item; a dropped radio stops it
+  // immediately. The sleep path must never be blocked by a dead link.
+  return gpio.rawInputActive() || WiFi.status() != WL_CONNECTED;
+}
+
+static void preSleepSyncProgress(const char* message, const size_t done, const size_t total) {
+  LOG_DBG("KOBO", "Pre-sleep download %u/%u: %s", static_cast<unsigned>(done + 1), static_cast<unsigned>(total),
+          message != nullptr ? message : "");
+}
+
+static void maybeRunPreSleepSync(const bool fromTimeout) {
+  if (!kobo::shouldAttemptPreSleepSync(fromTimeout, KOBO_STORE.hasCredentials(),
+                                       WiFi.status() == WL_CONNECTED)) {
+    return;
+  }
+
+  LOG_DBG("KOBO", "Pre-sleep sync: probing endpoint");
+  const bool keepFrame =
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
+      (fromTimeout &&
+       SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+  if (!keepFrame) {
+    RenderLock lock;
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_12_FONT_ID, renderer.getScreenHeight() / 2, tr(STR_KOBO_SYNCING), true,
+                              EpdFontFamily::BOLD);
+    renderer.displayBuffer();
+  }
+
+  if (!KoboSyncService::probeEndpoint(kobo::PRE_SLEEP_PROBE_BUDGET_MS)) {
+    LOG_DBG("KOBO", "Pre-sleep sync: probe failed, sleeping");
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  // The reader/shelf can hold tens of KB that TLS needs; release it only now
+  // that the probe proved the sync is actually starting.
+  activityManager.releaseForNetworkSync();
+  // Rebuildable SD-font caches can hold tens of KB the TLS session needs.
+  if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+
+  const auto result = KoboSyncService::runFullSync(true, preSleepSyncProgress, preSleepSyncCancelled, nullptr);
+  LOG_DBG("KOBO", "Pre-sleep sync done: error=%d books=%u downloaded=%u skipped=%u cancelled=%d incomplete=%d",
+          static_cast<int>(result.error), static_cast<unsigned>(result.books), static_cast<unsigned>(result.downloaded),
+          static_cast<unsigned>(result.skipped), result.cancelled, result.downloadsIncomplete);
+}
+#endif  // CROSSPOINT_KOBO_SYNC
+
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
@@ -479,6 +531,10 @@ void enterDeepSleep(bool fromTimeout = false) {
   APP_STATE.showBootScreen = false;
 
   APP_STATE.saveToFile();
+
+#if CROSSPOINT_KOBO_SYNC
+  maybeRunPreSleepSync(fromTimeout);
+#endif
 
   activityManager.goToSleep(fromTimeout);
 

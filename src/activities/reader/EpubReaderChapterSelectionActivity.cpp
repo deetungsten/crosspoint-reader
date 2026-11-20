@@ -43,6 +43,15 @@ void EpubReaderChapterSelectionActivity::onEnter() {
   nav.selected = currentTocIndex;
 }
 
+#if CROSSPOINT_KOBO_SYNC
+void EpubReaderChapterSelectionActivity::releaseForNetworkSync() {
+  epub.reset();
+  for (auto& label : windowLabels) label.clear();
+  windowCount = 0;
+  windowStart = -1;
+}
+#endif
+
 // Materialize the ListItem/label window starting at `start` (clamped). TOC
 // entries are SD LUT reads (getTocItem), so this runs only when the viewport
 // leaves the current window. Finishes with a batch prewarm of the window's

@@ -39,13 +39,6 @@ void appendKoboHeaders(std::vector<HttpDownloader::Header>& headers) {
   if (!KOBO_STORE.getCookie().empty()) headers.push_back({"Cookie", KOBO_STORE.getCookie()});
   headers.push_back({"x-kobo-device-id", KOBO_STORE.getDeviceId()});
 }
-
-std::string withContentSuffix(std::string path, const std::string& contentId) {
-  const std::string suffix = " [" + contentId.substr(0, 8) + "]";
-  const size_t dot = path.rfind('.');
-  if (dot == std::string::npos) return path + suffix;
-  return path.substr(0, dot) + suffix + path.substr(dot);
-}
 }  // namespace
 
 void KoboShelfActivity::onEnter() {
@@ -72,6 +65,13 @@ void KoboShelfActivity::onExit() {
     WiFi.mode(WIFI_OFF);
   }
   CatalogActivity::onExit();
+}
+
+void KoboShelfActivity::releaseForNetworkSync() {
+  // The sleep sync opens its own catalog; do not leave the shelf's rows and
+  // SD handles resident through TLS.
+  releaseRowStorage();
+  catalog.close();
 }
 
 int KoboShelfActivity::listCount() const { return state == State::BROWSING ? static_cast<int>(rowItems.size()) : 0; }
@@ -287,7 +287,7 @@ KoboSyncClient::Error KoboShelfActivity::prepareDownload(const KoboBookRecord& r
       alreadyDownloaded = true;
       return KoboSyncClient::OK;
     }
-    destination = withContentSuffix(destination, record.contentId);
+    destination = kobo::withContentSuffix(destination, record.contentId);
   }
   if (Storage.exists(destination.c_str())) {
     std::string linkedId;

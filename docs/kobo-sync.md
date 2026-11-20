@@ -110,9 +110,15 @@ CrossPoint downloads catalog books that do not have a file on the SD card yet:
   shelf is opened with Wi-Fi connected.
 - KEPUB downloads are accepted; the reader opens them through the EPUB path.
 
-Auto-download does not run in the background. It uses the same folder,
-filename-collision rule, and path link as a manual shelf download, so reading
-positions continue to work for automatically downloaded books.
+Auto-download does not run in the background or on a timer. It uses the same
+folder, filename-collision rule, and path link as a manual shelf download, so
+reading positions continue to work for automatically downloaded books. One
+exception is the timeout sleep path: when Kobo is configured and Wi-Fi is
+already connected, the reader probes the server for up to 10 seconds and, if it
+answers, runs the full sync (position upload, catalog delta, then the
+auto-download batch) before shutting down. There is no time limit once the
+probe succeeds; a button press or a dropped connection stops it at the next
+item. A failed probe sleeps exactly as before, and a manual sleep never delays.
 
 ## 4. Reading positions
 
@@ -130,11 +136,15 @@ whole-book percentage in that state.
   use **Sync Progress** for an on-demand fetch that can prompt. It is off by
   default because it needs Wi-Fi each time.
 - Closing a mapped book queues its position in `/.crosspoint/kobo.json` instead
-  of blocking the reader exit path on TLS. The next **Kobo Sync**, **Sync Now**,
-  or a **Kobo Library** visit while Wi-Fi is connected uploads it after a
-  successful catalog sync. The reader menu's **Sync Progress** entry runs the
-  fetch/compare/upload immediately and brings Wi-Fi up on demand. Only the most
-  recently closed book's position is queued.
+  of blocking the reader exit path on TLS. The same position is queued when the
+  reader goes to sleep, so the timeout pre-sleep sync uploads the current
+  session. **Kobo Sync**, **Sync Now**, and a **Kobo Library** visit upload it
+  after a successful catalog sync. The timeout pre-sleep sync uploads it before
+  the catalog sync, so a failed catalog refresh still gets the position
+  through. The reader menu's **Sync Progress** entry runs the
+  fetch/compare/upload immediately and brings Wi-Fi up on demand. Only one
+  book's position is queued at a time; a newer position replaces the previous
+  one.
 
 ## Limitations
 
@@ -158,9 +168,11 @@ whole-book percentage in that state.
   downloaded again.
 - Plain HTTP is the expected setup for a LAN server. HTTPS uses the firmware's
   existing insecure-client path and is not certificate-pinned.
-- There is no background or periodic sync. The only automatic syncs are the
-  shelf's catalog refresh when it opens and **Sync on Open** when a mapped book
-  opens; both require an existing connection and do not start one. Every other
-  sync and auto-download batch follows an explicit action.
+- There is no background or periodic sync. The automatic syncs are the shelf's
+  catalog refresh when it opens, **Sync on Open** when a mapped book opens, and
+  the timeout sleep path described above; the first two require an existing
+  connection and do not start one, and the sleep path also requires an existing
+  connection. Every other sync and auto-download batch follows an explicit
+  action.
 - Leaving the shelf turns Wi-Fi off in place; **Sync Now** does so when it
   brought the radio up. Neither screen reboots the device.

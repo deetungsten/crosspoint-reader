@@ -1,0 +1,20 @@
+Verbosity level can be increased via `-v, -vv, or -vvv` option
+Collected 1 tests
+
+Processing * in default environment
+--------------------------------------------------------------------------------
+Building & Uploading...
+Removing unused dependencies...
+Library Manager: Installing throwtheswitch/Unity @ ^2.6.1
+Downloading 0% 10% 20% 30% 40% 50% 60% 70% 80% 90%
+Unpacking 0% 10% 20% 30% 40% 50% 60% 70% 80% 90% 100%
+Library Manager: Unity@2.6.1 has been installed!
+Error: Nothing to build. Please put your test suites to the '/Users/llm/Projects/kobo-sync-firmware/test' folder
+Uploading stage has failed, see errors above. Use `pio test -vvv` option to enable verbose output.
+-------------------- default:* [ERRORED] Took 8.35 seconds --------------------
+
+=================================== SUMMARY ===================================
+Environment    Test    Status    Duration
+-------------  ------  --------  ------------
+default        *       ERRORED   00:00:08.348
+================== 1 test cases: 0 succeeded in 00:00:08.348 ==================

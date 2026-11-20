@@ -24,6 +24,7 @@ class KoboShelfActivity final : public CatalogActivity {
 
   void onEnter() override;
   void onExit() override;
+  void releaseForNetworkSync() override;
 
  private:
   // One page of the shelf. Fixed cap keeps the row strings and records bounded

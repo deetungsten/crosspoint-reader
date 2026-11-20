@@ -31,6 +31,9 @@ class EpubReaderBookmarksActivity final : public UiListActivity {
                                        const std::shared_ptr<Epub>& epub, const std::string& epubPath);
   void onEnter() override;
   void render(RenderLock&&) override;
+#if CROSSPOINT_KOBO_SYNC
+  void releaseForNetworkSync() override;
+#endif
 
  private:
   int listCount() const override { return static_cast<int>(bookmarks.size()); }

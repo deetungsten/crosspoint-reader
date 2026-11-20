@@ -1494,21 +1494,63 @@ bool EpubReaderActivity::launchKOReaderSync() {
 }
 
 #if CROSSPOINT_KOBO_SYNC
+void EpubReaderActivity::queueKoboProgress() {
+  std::string contentId;
+  if (!epub || !KOBO_STORE.hasCredentials() || !KoboCatalog::contentIdForPath(bookPath, contentId)) return;
+  const int basisPoints = getProgressBasisPoints();
+  const uint8_t status = basisPoints >= 9950 ? static_cast<uint8_t>(kobo::ReadStatus::Finished)
+                         : basisPoints > 0   ? static_cast<uint8_t>(kobo::ReadStatus::Reading)
+                                             : static_cast<uint8_t>(kobo::ReadStatus::Unread);
+  if (KOBO_STORE.getPendingContentId() == contentId && KOBO_STORE.getPendingProgressBp() == basisPoints &&
+      KOBO_STORE.getPendingStatus() == status) {
+    return;
+  }
+  KOBO_STORE.queueProgressUpload(contentId, static_cast<uint16_t>(basisPoints), status);
+  KOBO_STORE.saveToFile();
+}
+
+void EpubReaderActivity::prepareForSleep() {
+  // deliverSleepPluginEvents() calls this before enterDeepSleep() runs the
+  // pre-sleep sync, so the sync sees the current session's position.
+  queueKoboProgress();
+  ReaderActivity::prepareForSleep();
+}
+
+void EpubReaderActivity::releaseEpub() {
+  if (pendingReadFolderMove && epub) {
+    const std::string srcPath = epub->getPath();
+    const std::string oldCachePath = epub->getCachePath();
+    const std::string dstPath = buildReadFolderDestination(srcPath);
+    epub.reset();
+    moveFinishedBookToReadFolder(srcPath, dstPath, oldCachePath);
+  } else {
+    epub.reset();
+  }
+}
+
+void EpubReaderActivity::releaseForNetworkSync() {
+  if (!epub) return;
+  const int currentPage = section ? section->currentPage : nextPageNumber;
+  const int totalPages = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+  if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
+    LOG_ERR("KOBO", "Pre-sleep sync could not save local progress");
+  }
+  if (section) nextPageNumber = section->currentPage;
+  discardOverlayPage();
+  ImageBlock::releaseRenderCache();
+  ImageBlock::setExtractor(nullptr, nullptr);
+  section.reset();
+  if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+  // The destructor can no longer save the back-stack once epub is gone.
+  if (footnoteDepth > 0) saveLinkStack();
+  releaseEpub();
+}
+
 void EpubReaderActivity::onExit() {
   // Queue the close-time position instead of doing TLS in the exit path:
   // onExit runs under the render lock, and a slow server would stall Home or
   // sleep. The next Kobo network action flushes it.
-  std::string contentId;
-  int basisPoints = 0;
-  if (epub && KOBO_STORE.hasCredentials() && KoboCatalog::contentIdForPath(bookPath, contentId)) {
-    basisPoints = getProgressBasisPoints();
-    const uint8_t status = basisPoints >= 9950 ? static_cast<uint8_t>(kobo::ReadStatus::Finished)
-                           : basisPoints > 0   ? static_cast<uint8_t>(kobo::ReadStatus::Reading)
-                                               : static_cast<uint8_t>(kobo::ReadStatus::Unread);
-    KOBO_STORE.queueProgressUpload(contentId, static_cast<uint16_t>(basisPoints), status);
-    KOBO_STORE.saveToFile();
-  }
-
+  queueKoboProgress();
   ReaderActivity::onExit();
 }
 

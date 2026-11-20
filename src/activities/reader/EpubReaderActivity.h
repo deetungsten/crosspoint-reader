@@ -258,6 +258,13 @@ class EpubReaderActivity final : public ReaderActivity {
   int getProgressBasisPoints() const override;
   void renderBook() override;
   void onEndOfBookRendered() override;
+#if CROSSPOINT_KOBO_SYNC
+  // Frees the open book and performs any pending finished-book folder move.
+  void releaseEpub();
+  // Queue the current position before sleep so the pre-sleep sync uploads this
+  // session, not the position from the last close.
+  void queueKoboProgress();
+#endif
 
  public:
   explicit EpubReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string bookPath,
@@ -268,6 +275,8 @@ class EpubReaderActivity final : public ReaderActivity {
   void loop() override;
 #if CROSSPOINT_KOBO_SYNC
   void onExit() override;
+  void prepareForSleep() override;
+  void releaseForNetworkSync() override;
 #endif
   void render(RenderLock&& lock) override;
 

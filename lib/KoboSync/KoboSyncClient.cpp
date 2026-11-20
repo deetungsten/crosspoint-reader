@@ -135,7 +135,8 @@ bool headerIsContinue(const std::string& value) {
 
 KoboSyncClient::Error request(const char* method, const std::string& path, const std::string& body,
                               const std::string& syncToken, const freeink::SecureHttpClient::DataCallback& onData,
-                              ResponseInfo& info, const bool* cancelFlag) {
+                              ResponseInfo& info, KoboSyncClient::CancelPredicate cancelPredicate = nullptr,
+                              void* cancelContext = nullptr) {
   info = ResponseInfo{};
   KoboSyncClient::lastHttpCode = 0;
   if (!KOBO_STORE.hasCredentials()) return KoboSyncClient::NO_CREDENTIALS;
@@ -159,7 +160,9 @@ KoboSyncClient::Error request(const char* method, const std::string& path, const
   if (!syncToken.empty()) http.addHeader("x-kobo-synctoken", syncToken);
   if (!body.empty()) http.addHeader("Content-Type", "application/json");
 
-  const auto abort = [cancelFlag] { return cancelFlag != nullptr && *cancelFlag; };
+  const auto abort = [cancelPredicate, cancelContext] {
+    return cancelPredicate != nullptr && cancelPredicate(cancelContext);
+  };
   int status = 0;
   if (strcmp(method, "GET") == 0) {
     status = http.GET(onData, abort);
@@ -241,7 +244,8 @@ void onEntry(void* ctx, const kobo::FeedEntry& entry) {
 }
 
 KoboSyncClient::Error collectBody(const std::string& path, std::string& body, const size_t cap,
-                                  const bool* cancelFlag) {
+                                  KoboSyncClient::CancelPredicate cancelPredicate = nullptr,
+                                  void* cancelContext = nullptr) {
   body.clear();
   bool tooLarge = false;
   ResponseInfo info;
@@ -255,7 +259,7 @@ KoboSyncClient::Error collectBody(const std::string& path, std::string& body, co
         body.append(reinterpret_cast<const char*>(data), len);
         return true;
       },
-      info, cancelFlag);
+      info, cancelPredicate, cancelContext);
   if (error != KoboSyncClient::OK) return error;
   if (tooLarge) return KoboSyncClient::JSON_ERROR;
   return KoboSyncClient::OK;
@@ -263,7 +267,8 @@ KoboSyncClient::Error collectBody(const std::string& path, std::string& body, co
 
 }  // namespace
 
-KoboSyncClient::Error KoboSyncClient::syncCatalog(KoboCatalog& catalog, SyncStats& stats, const bool* cancelFlag) {
+KoboSyncClient::Error KoboSyncClient::syncCatalog(KoboCatalog& catalog, SyncStats& stats,
+                                                  const CancelPredicate cancelPredicate, void* cancelContext) {
   lastHttpCode = 0;
   stats = SyncStats{};
   if (!KOBO_STORE.hasCredentials()) return NO_CREDENTIALS;
@@ -299,12 +304,12 @@ KoboSyncClient::Error KoboSyncClient::syncCatalog(KoboCatalog& catalog, SyncStat
   for (uint16_t page = 0; page < MAX_SYNC_PAGES; page++) {
     parser->reset();
     ResponseInfo info;
-    const auto feedSink = [&parser, cancelFlag](const uint8_t* data, const size_t len) {
-      if (cancelFlag != nullptr && *cancelFlag) return false;
+    const auto feedSink = [&parser, cancelPredicate, cancelContext](const uint8_t* data, const size_t len) {
+      if (cancelPredicate != nullptr && cancelPredicate(cancelContext)) return false;
       parser->feed(reinterpret_cast<const char*>(data), len);
       return !parser->hasError();
     };
-    result = request("GET", "/v1/library/sync", "", token, feedSink, info, cancelFlag);
+    result = request("GET", "/v1/library/sync", "", token, feedSink, info, cancelPredicate, cancelContext);
     if (parser->hasError() || (result == OK && !parser->finished())) {
       result = JSON_ERROR;
       break;
@@ -327,7 +332,7 @@ KoboSyncClient::Error KoboSyncClient::syncCatalog(KoboCatalog& catalog, SyncStat
     // A position queued when the reader closed is flushed here, so "Sync Now"
     // and visiting the shelf upload the last book's progress without making
     // the reader exit path block on TLS.
-    const auto pending = flushPendingProgress();
+    const auto pending = flushPendingProgress(cancelPredicate, cancelContext);
     if (pending != OK) LOG_ERR("KOBO", "Pending position upload failed: %d", static_cast<int>(pending));
   }
   LOG_DBG("KOBO", "Sync %s: books=%u states=%u tags=%u pages=%u token=%s", result == OK ? "complete" : "failed",
@@ -335,12 +340,13 @@ KoboSyncClient::Error KoboSyncClient::syncCatalog(KoboCatalog& catalog, SyncStat
   return result;
 }
 
-KoboSyncClient::Error KoboSyncClient::fetchMetadata(const std::string& contentId, kobo::Metadata& out) {
+KoboSyncClient::Error KoboSyncClient::fetchMetadata(const std::string& contentId, kobo::Metadata& out,
+                                                    const CancelPredicate cancelPredicate, void* cancelContext) {
   out = kobo::Metadata{};
   if (!KOBO_STORE.hasCredentials()) return NO_CREDENTIALS;
   const std::string path = "/v1/library/" + contentId + "/metadata";
   std::string body;
-  const auto result = collectBody(path, body, MAX_METADATA_BYTES, nullptr);
+  const auto result = collectBody(path, body, MAX_METADATA_BYTES, cancelPredicate, cancelContext);
   if (result != OK) return result;
 
   JsonDocument filter;
@@ -394,7 +400,7 @@ KoboSyncClient::Error KoboSyncClient::fetchReadingState(const std::string& conte
   if (!KOBO_STORE.hasCredentials()) return NO_CREDENTIALS;
   const std::string path = "/v1/library/" + contentId + "/state";
   std::string body;
-  const auto result = collectBody(path, body, MAX_STATE_BYTES, nullptr);
+  const auto result = collectBody(path, body, MAX_STATE_BYTES);
   if (result == NOT_FOUND) return NOT_FOUND;
   if (result != OK) return result;
 
@@ -435,7 +441,8 @@ KoboSyncClient::Error KoboSyncClient::fetchReadingState(const std::string& conte
 }
 
 KoboSyncClient::Error KoboSyncClient::putReadingState(const std::string& contentId, const float progressPercent,
-                                                      const kobo::ReadStatus status, const std::string& location) {
+                                                      const kobo::ReadStatus status, const std::string& location,
+                                                      const CancelPredicate cancelPredicate, void* cancelContext) {
   if (!KOBO_STORE.hasCredentials()) return NO_CREDENTIALS;
   const float clamped = progressPercent < 0.0f ? 0.0f : (progressPercent > 100.0f ? 100.0f : progressPercent);
   JsonDocument doc;
@@ -469,14 +476,16 @@ KoboSyncClient::Error KoboSyncClient::putReadingState(const std::string& content
         response.append(reinterpret_cast<const char*>(data), len);
         return true;
       },
-      info, nullptr);
+      info, cancelPredicate, cancelContext);
 }
 
-KoboSyncClient::Error KoboSyncClient::flushPendingProgress() {
+KoboSyncClient::Error KoboSyncClient::flushPendingProgress(const CancelPredicate cancelPredicate,
+                                                           void* cancelContext) {
   if (!KOBO_STORE.hasPendingUpload()) return OK;
   const auto result = putReadingState(KOBO_STORE.getPendingContentId(),
                                       static_cast<float>(KOBO_STORE.getPendingProgressBp()) / 100.0f,
-                                      static_cast<kobo::ReadStatus>(KOBO_STORE.getPendingStatus()), "");
+                                      static_cast<kobo::ReadStatus>(KOBO_STORE.getPendingStatus()), "", cancelPredicate,
+                                      cancelContext);
   if (result == OK) {
     KOBO_STORE.clearPendingUpload();
     KOBO_STORE.saveToFile();

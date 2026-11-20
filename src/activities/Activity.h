@@ -32,6 +32,11 @@ class Activity {
   virtual void onExit();
   // Last chance to queue activity-owned state before sleep events are drained.
   virtual void prepareForSleep() {}
+#if CROSSPOINT_KOBO_SYNC
+  // Release rebuildable book/row memory before the timeout pre-sleep sync
+  // opens TLS. Called only when that sync is actually starting.
+  virtual void releaseForNetworkSync() {}
+#endif
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}

@@ -120,7 +120,15 @@ void ActivityManager::loop() {
     return;
   }
 
-  if (currentActivity) {
+#if CROSSPOINT_KOBO_SYNC
+  // The outgoing activity may have released its book/rows for the pre-sleep
+  // network sync; do not let its loop() react to that state before the sleep
+  // screen replaces it.
+  const bool outgoingReleasedForSleep = pendingAction == PendingAction::ReplaceForSleep;
+#else
+  constexpr bool outgoingReleasedForSleep = false;
+#endif
+  if (!outgoingReleasedForSleep && currentActivity) {
     if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
         return;
@@ -504,6 +512,14 @@ void ActivityManager::prepareForSleep() {
   for (const auto& activity : stackActivities) activity->prepareForSleep();
   if (currentActivity) currentActivity->prepareForSleep();
 }
+
+#if CROSSPOINT_KOBO_SYNC
+void ActivityManager::releaseForNetworkSync() {
+  RenderLock lock;
+  for (const auto& activity : stackActivities) activity->releaseForNetworkSync();
+  if (currentActivity) currentActivity->releaseForNetworkSync();
+}
+#endif
 
 void ActivityManager::requestUpdate(bool immediate) {
   if (immediate) {
