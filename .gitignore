@@ -36,3 +36,5 @@ lib/EpdFont/scripts/output/
 sdkconfig.sticky
 sdkconfig.x4pro
 flake.*
+review-tmp/
+review-tmp-*.log

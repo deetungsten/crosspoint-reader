@@ -21,6 +21,29 @@ inline constexpr size_t LOCATION_TYPE_MAX = 32;
 
 enum class ReadStatus : uint8_t { Unread = 0, Reading = 1, Finished = 2 };
 
+// A book counts as finished from 99.5%: the last laid-out page computes just
+// under 10000 bp, so the threshold sits below it, while rounding noise between
+// layout engines must not mark a book read. Shared by the close-time queue and
+// the conflict activity so both upload the same status for the same position.
+inline constexpr uint16_t FINISHED_BASIS_POINTS = 9950;
+
+inline ReadStatus readStatusFor(const uint16_t progressBp) {
+  if (progressBp >= FINISHED_BASIS_POINTS) return ReadStatus::Finished;
+  return progressBp > 0 ? ReadStatus::Reading : ReadStatus::Unread;
+}
+
+enum class SyncAction : uint8_t { ApplyRemote, UploadLocal, AlreadySynced };
+
+// SMART conflict resolution: whichever side is further along by more than
+// `toleranceBp` wins; anything smaller is rounding noise between engines.
+inline SyncAction syncActionFor(const uint16_t remoteBp, const uint16_t localBp, const uint16_t toleranceBp) {
+  const int remoteWithTolerance = remoteBp + toleranceBp;
+  const int localWithTolerance = localBp + toleranceBp;
+  if (remoteBp > localWithTolerance) return SyncAction::ApplyRemote;
+  if (localBp > remoteWithTolerance) return SyncAction::UploadLocal;
+  return SyncAction::AlreadySynced;
+}
+
 enum class EntryKind : uint8_t { Book, ReadingState, Tag };
 
 struct FeedEntry {

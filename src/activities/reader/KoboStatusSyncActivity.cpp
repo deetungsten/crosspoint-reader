@@ -107,14 +107,17 @@ void KoboStatusSyncActivity::performSync() {
 
   const uint16_t localBasisPoints = static_cast<uint16_t>(localProgress * 10000.0f + 0.5f);
   if (KOBO_STORE.getSyncBehavior() == KoboSyncBehavior::SMART) {
-    if (remote.progressBp > localBasisPoints + CONFLICT_BASIS_POINTS) {
-      applyRemote();
-    } else if (localBasisPoints > remote.progressBp + CONFLICT_BASIS_POINTS) {
-      uploadLocal();
-    } else {
-      finishWith(State::DONE, tr(STR_ALREADY_SYNCED));
+    switch (kobo::syncActionFor(remote.progressBp, localBasisPoints, CONFLICT_BASIS_POINTS)) {
+      case kobo::SyncAction::ApplyRemote:
+        applyRemote();
+        return;
+      case kobo::SyncAction::UploadLocal:
+        uploadLocal();
+        return;
+      case kobo::SyncAction::AlreadySynced:
+        finishWith(State::DONE, tr(STR_ALREADY_SYNCED));
+        return;
     }
-    return;
   }
 
   decide();
@@ -159,6 +162,9 @@ void KoboStatusSyncActivity::applyRemote() {
   }
 
   SavedProgressPosition remoteProgress;
+  // The server state carries no CrossPoint xpath, so the percent is the only
+  // anchor; the mapper's page estimate can land within about a page and
+  // converges on the next close-time upload.
   remoteProgress.percentage = static_cast<float>(remote.progressBp) / 10000.0f;
   CrossPointPosition position;
   {
@@ -188,9 +194,7 @@ void KoboStatusSyncActivity::uploadLocal() {
   requestUpdateAndWait();
 
   const uint16_t basisPoints = static_cast<uint16_t>(localProgress * 10000.0f + 0.5f);
-  const kobo::ReadStatus status = basisPoints >= 9950 ? kobo::ReadStatus::Finished
-                                  : basisPoints > 0   ? kobo::ReadStatus::Reading
-                                                      : kobo::ReadStatus::Unread;
+  const kobo::ReadStatus status = kobo::readStatusFor(basisPoints);
   const auto result = KoboSyncClient::putReadingState(contentId, localProgress * 100.0f, status, "");
   if (result != KoboSyncClient::OK) {
     finishWith(State::FAILED, KoboSyncClient::errorString(result));

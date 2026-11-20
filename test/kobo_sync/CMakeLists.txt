@@ -3,6 +3,7 @@ add_executable(KoboSyncTest
   KoboFeedParserTest.cpp
   KoboDownloadPlanTest.cpp
   KoboPreSleepSyncTest.cpp
+  KoboProgressStatusTest.cpp
   ${REPO_ROOT}/lib/KoboSync/KoboSyncToken.cpp
   ${REPO_ROOT}/lib/KoboSync/KoboSyncTime.cpp
   ${REPO_ROOT}/lib/KoboSync/KoboFeedParser.cpp

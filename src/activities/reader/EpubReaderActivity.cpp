@@ -1498,9 +1498,7 @@ void EpubReaderActivity::queueKoboProgress() {
   std::string contentId;
   if (!epub || !KOBO_STORE.hasCredentials() || !KoboCatalog::contentIdForPath(bookPath, contentId)) return;
   const int basisPoints = getProgressBasisPoints();
-  const uint8_t status = basisPoints >= 9950 ? static_cast<uint8_t>(kobo::ReadStatus::Finished)
-                         : basisPoints > 0   ? static_cast<uint8_t>(kobo::ReadStatus::Reading)
-                                             : static_cast<uint8_t>(kobo::ReadStatus::Unread);
+  const auto status = static_cast<uint8_t>(kobo::readStatusFor(static_cast<uint16_t>(basisPoints)));
   if (KOBO_STORE.getPendingContentId() == contentId && KOBO_STORE.getPendingProgressBp() == basisPoints &&
       KOBO_STORE.getPendingStatus() == status) {
     return;
@@ -1562,6 +1560,10 @@ bool EpubReaderActivity::launchKoboStatusSync(const std::string& contentId) {
   const int currentPage = section ? section->currentPage : nextPageNumber;
   const int totalPages = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
   const CrossPointPosition localPos = getCurrentPosition();
+  // Same whole-book basis points the close-time queue uploads; the conflict
+  // compare and the manual upload must use the uploaded convention, not the
+  // mapper's slightly different intra-chapter fraction.
+  const int localBasisPoints = getProgressBasisPoints();
   const std::string savedEpubPath = epub->getPath();
 
   if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
@@ -1571,7 +1573,6 @@ bool EpubReaderActivity::launchKoboStatusSync(const std::string& contentId) {
     return true;
   }
 
-  SavedProgressPosition localProgress;
   {
     if (section) nextPageNumber = section->currentPage;
     discardOverlayPage();
@@ -1579,9 +1580,6 @@ bool EpubReaderActivity::launchKoboStatusSync(const std::string& contentId) {
     ImageBlock::setExtractor(nullptr, nullptr);
     section.reset();
     if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
-    // No rendering may run while the chapter mapper borrows the framebuffer.
-    GfxRenderer::FrameBufferLoan loan(renderer);
-    localProgress = ProgressMapper::toSavedProgress(epub, localPos);
     if (footnoteDepth > 0) saveLinkStack();
     epub.reset();
   }
@@ -1592,9 +1590,9 @@ bool EpubReaderActivity::launchKoboStatusSync(const std::string& contentId) {
   APP_STATE.openEpubPath = savedEpubPath;
   APP_STATE.saveToFile();
 
-  activityManager.replaceActivity(std::make_unique<KoboStatusSyncActivity>(renderer, mappedInput, savedEpubPath,
-                                                                           contentId, localProgress.percentage,
-                                                                           localPos.spineIndex, localPos.totalPages));
+  activityManager.replaceActivity(std::make_unique<KoboStatusSyncActivity>(
+      renderer, mappedInput, savedEpubPath, contentId, localBasisPoints / 10000.0f, localPos.spineIndex,
+      localPos.totalPages));
   return true;
 }
 #endif
@@ -3674,12 +3672,12 @@ ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {
 
 int EpubReaderActivity::getProgressBasisPoints() const {
   if (isAtEndOfBook()) return 10000;
-  if (!epub || !section || epub->getBookSize() == 0) return getProgressPercent() * 100;
-  const int totalPages = section->estimatedTotalPages();
-  if (totalPages <= 0) return getProgressPercent() * 100;
-  const float chapterProgress = static_cast<float>(section->currentPage) / static_cast<float>(totalPages);
-  const int basisPoints =
-      static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterProgress) * 10000.0f + 0.5f);
+  if (!epub || epub->getBookSize() == 0) return getProgressPercent() * 100;
+  // The live section and the cached position share one formula; with no page
+  // count at all the chapter start is the best known position.
+  const ChapterPosition position = chapterPosition();
+  const float fraction = position.hasTotal() ? position.chapterFraction() : 0.0f;
+  const int basisPoints = static_cast<int>(epub->calculateProgress(currentSpineIndex, fraction) * 10000.0f + 0.5f);
   return std::clamp(basisPoints, 0, 10000);
 }
 
